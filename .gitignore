@@ -1,0 +1,10 @@
+bin/
+obj/
+publish/
+*.user
+.vs/
+.idea/
+*.suo
+launchSettings.json
+Properties/launchSettings.json
+appsettings.Development.json
