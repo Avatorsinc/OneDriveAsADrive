@@ -22,36 +22,10 @@ jobs:
           dotnet-version: '9.0.x'
 
       - name: Publish single-file exe
-        run: |
-          dotnet publish -c Release -r win-x64 --self-contained `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:DebugType=None `
-            -o publish/
-
-      - name: Sign executable
-        # Skip if no cert secret is set (forks, open PRs, etc.)
-        if: ${{ secrets.CODE_SIGN_CERT != '' }}
-        env:
-          CODE_SIGN_CERT: ${{ secrets.CODE_SIGN_CERT }}
-          CODE_SIGN_PASSWORD: ${{ secrets.CODE_SIGN_PASSWORD }}
-        run: |
-          $pfxPath = "$env:TEMP\codesign.pfx"
-          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CODE_SIGN_CERT))
-          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign `
-            /f $pfxPath `
-            /p $env:CODE_SIGN_PASSWORD `
-            /fd SHA256 `
-            /tr http://timestamp.digicert.com `
-            /td SHA256 `
-            publish/OneDriveAsADrive.exe
-          Remove-Item $pfxPath -Force
+        run: dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o publish/
 
       - name: Create release zip
-        run: |
-          Compress-Archive `
-            -Path publish/OneDriveAsADrive.exe, install.ps1 `
-            -DestinationPath OneDriveAsADrive-${{ github.ref_name }}-win-x64.zip
+        run: Compress-Archive -Path publish/OneDriveAsADrive.exe, install.ps1 -DestinationPath OneDriveAsADrive-${{ github.ref_name }}-win-x64.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -61,20 +35,14 @@ jobs:
             ## Install
 
             **One-liner (PowerShell as Administrator):**
-            ```powershell
+
+            ```
             iwr https://github.com/${{ github.repository }}/releases/latest/download/install.ps1 -UseBasicParsing | iex
             ```
 
-            **Or download the zip**, extract, and run `OneDriveAsADrive.exe`.
+            Or download the zip, extract, and run `OneDriveAsADrive.exe`.
 
-            ## What's in the zip
-            - `OneDriveAsADrive.exe` — self-contained, no .NET install needed
-            - `install.ps1` — automated installer + drive mapper
-
-            ## Requirements
-            - Windows 10 / 11
-            - OneDrive sync client signed in with a **work or school** Microsoft 365 account
-            - WebClient service enabled (installer handles this)
+            **Requirements:** Windows 10/11, OneDrive sync client signed in with a work/school Microsoft 365 account.
           files: |
             OneDriveAsADrive-${{ github.ref_name }}-win-x64.zip
             install.ps1
