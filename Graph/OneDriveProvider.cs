@@ -1,5 +1,6 @@
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
 using Microsoft.Kiota.Abstractions.Authentication;
 using OneDriveAsADrive.Auth;
 
@@ -43,13 +44,24 @@ public class OneDriveProvider
 
     // Get metadata for any path. Root ("/") or file/folder.
     // "Giggity giggity — I'll take that DriveItem."
+    // Returns null on 404 instead of throwing — Windows constantly probes for
+    // phantom files like Desktop.ini and AutoRun.inf, and we're not gonna have a
+    // stack-trace aneurysm every single time. Just calmly say "nope." Roadhouse.
     public async Task<DriveItem?> GetItemAsync(string davPath)
     {
         var driveId = await GetDriveIdAsync();
         var path = ToGraphPath(davPath);
-        return string.IsNullOrEmpty(path)
-            ? await _client.Drives[driveId].Root.GetAsync()
-            : await _client.Drives[driveId].Root.ItemWithPath(path).GetAsync();
+        try
+        {
+            return string.IsNullOrEmpty(path)
+                ? await _client.Drives[driveId].Root.GetAsync()
+                : await _client.Drives[driveId].Root.ItemWithPath(path).GetAsync();
+        }
+        catch (ODataError e) when (e.ResponseStatusCode == 404)
+        {
+            // File doesn't exist. That's not an error, that's just Tuesday.
+            return null;
+        }
     }
 
     // List folder contents. Depth: 1. Like Chris looking in the fridge — only one level deep.

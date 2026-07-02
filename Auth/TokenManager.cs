@@ -31,8 +31,11 @@ public class TokenManager
 
         // Build the MSAL app with Windows WAM broker.
         // WAM is like Joe Swanson — it handles things the right way so you don't have to.
+        // Authority "common" = accepts BOTH work/school AND personal Microsoft accounts.
+        // Personal accounts self-consent (no admin wall), so this is also how you test
+        // when your work tenant is locked down tighter than Stewie's diary.
         _app = PublicClientApplicationBuilder.Create(ClientId)
-            .WithAuthority(AzureCloudInstance.AzurePublic, "organizations")
+            .WithAuthority(AzureCloudInstance.AzurePublic, "common")
             .WithBroker(new BrokerOptions(BrokerOptions.OperatingSystems.Windows)
             {
                 ListOperatingSystemAccounts = true  // show all signed-in Windows accounts
