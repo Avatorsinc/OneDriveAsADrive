@@ -10,7 +10,7 @@
 .PARAMETER Port
     Local port for the WebDAV server (default: 8080)
 .EXAMPLE
-    iwr https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/OneDriveAsADrive/main/install.ps1 -UseBasicParsing | iex
+    iwr https://raw.githubusercontent.com/Avatorsinc/OneDriveAsADrive/main/install.ps1 -UseBasicParsing | iex
 .EXAMPLE
     .\install.ps1 -DriveLetter W -Port 9090
 #>
@@ -22,7 +22,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$RepoOwner  = "YOUR_GITHUB_USERNAME"
+$RepoOwner  = "Avatorsinc"
 $RepoName   = "OneDriveAsADrive"
 $InstallDir = "$env:LOCALAPPDATA\$RepoName"
 $ExePath    = "$InstallDir\$RepoName.exe"

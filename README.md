@@ -2,9 +2,9 @@
 
 Mount your **OneDrive for Business** as a real Windows drive letter (e.g. `Z:\`) — no failed WebDAV connections, no app registration, no MFA prompts.
 
-[![GitHub release](https://img.shields.io/github/v/release/YOUR_GITHUB_USERNAME/OneDriveAsADrive)](https://github.com/YOUR_GITHUB_USERNAME/OneDriveAsADrive/releases/latest)
+[![GitHub release](https://img.shields.io/github/v/release/Avatorsinc/OneDriveAsADrive)](https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Build](https://github.com/YOUR_GITHUB_USERNAME/OneDriveAsADrive/actions/workflows/release.yml/badge.svg)](https://github.com/YOUR_GITHUB_USERNAME/OneDriveAsADrive/actions)
+[![Build](https://github.com/Avatorsinc/OneDriveAsADrive/actions/workflows/release.yml/badge.svg)](https://github.com/Avatorsinc/OneDriveAsADrive/actions)
 
 ---
 
@@ -13,8 +13,6 @@ Mount your **OneDrive for Business** as a real Windows drive letter (e.g. `Z:\`)
 | App running | Drive in File Explorer |
 |---|---|
 | ![Terminal showing OneDriveAsADrive running](screenshots/terminal.png) | ![Z: drive in File Explorer](screenshots/explorer.png) |
-
-> Add screenshots by running the app, pressing `Win+E`, and capturing with `Win+Shift+S`.
 
 ---
 
@@ -48,7 +46,7 @@ File Explorer ──► Z:\ (WebDAV on localhost)
 Open **PowerShell as Administrator** and run:
 
 ```powershell
-iwr https://github.com/YOUR_GITHUB_USERNAME/OneDriveAsADrive/releases/latest/download/install.ps1 -UseBasicParsing | iex
+iwr https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest/download/install.ps1 -UseBasicParsing | iex
 ```
 
 The installer will:
@@ -63,7 +61,7 @@ The installer will:
 
 ## Manual Install
 
-1. Download the latest `OneDriveAsADrive-vX.X.X-win-x64.zip` from [Releases](https://github.com/YOUR_GITHUB_USERNAME/OneDriveAsADrive/releases/latest)
+1. Download the latest `OneDriveAsADrive-vX.X.X-win-x64.zip` from [Releases](https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest)
 2. Extract `OneDriveAsADrive.exe` anywhere
 3. Run as **Administrator** once to configure WebClient:
    ```powershell
@@ -136,14 +134,14 @@ Remove-Item "$env:LOCALAPPDATA\OneDriveAsADrive" -Recurse -Force -ErrorAction Si
 - This means WAM can't find a cached account. Sign in to your work account in Windows Settings → Accounts → Access work or school.
 
 **Files show as 0 bytes or fail to open**
-- Some file types are locked by OneDrive policies. Check if the file opens in the browser via `https://dscloud-my.sharepoint.com`.
+- Some file types are locked by OneDrive policies. Check if the file opens in the browser via your SharePoint URL (e.g. `https://yourtenant-my.sharepoint.com`).
 
 ---
 
 ## Building from Source
 
 ```powershell
-git clone https://github.com/YOUR_GITHUB_USERNAME/OneDriveAsADrive
+git clone https://github.com/Avatorsinc/OneDriveAsADrive
 cd OneDriveAsADrive
 dotnet run
 ```
