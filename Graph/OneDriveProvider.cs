@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Headers;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
@@ -15,6 +17,18 @@ namespace OneDriveAsADrive.Graph;
 // Stewie asking "are we there yet." So we cache aggressively for a few seconds.
 public class OneDriveProvider
 {
+    // Shared HttpClient for streaming file content straight off OneDrive's
+    // pre-authenticated download URLs (no bearer token needed on those). One instance,
+    // reused, like Peter's one good pair of pants.
+    private static readonly HttpClient Http = new();
+
+    // Graph caps uploads via simple PUT around 4 MB. Bigger than this and we switch
+    // to a chunked upload session, or the upload just faceplants.
+    private const long SimpleUploadLimit = 4L * 1024 * 1024;
+    // Upload session chunk size: 5 MiB. MUST be a multiple of 320 KiB or Graph sulks.
+    // (5 MiB = 16 × 320 KiB. The math checks out, Brian.)
+    private const int UploadChunkSize = 5 * 1024 * 1024;
+
     private readonly GraphServiceClient _client;
     private readonly IMemoryCache _cache;
 
@@ -57,8 +71,8 @@ public class OneDriveProvider
         finally { _initLock.Release(); }
     }
 
-    // Get metadata for a path — AND, if it's a folder, grab its children in the SAME
-    // network call via $expand=children. One round trip instead of two. Freakin' sweet.
+    // Get metadata for a path — AND, if it's a folder, grab its (first page of) children
+    // in the SAME network call via $expand=children. One round trip instead of two.
     //
     // Results are cached. 404s return null (and are cached) instead of throwing —
     // Windows probes for phantom files constantly and we're not gonna cry every time.
@@ -89,29 +103,34 @@ public class OneDriveProvider
 
         _cache.Set(key, item, PositiveTtl);
 
-        // Bonus: the expand handed us the children for free, so seed THAT cache too.
-        // Now the PROPFIND that follows is an instant cache hit. Giggity.
-        if (item?.Folder != null && item.Children != null)
+        // Bonus: the expand handed us children for free — seed THAT cache too, so the
+        // PROPFIND that follows is an instant hit. BUT only if the expand wasn't
+        // truncated (folders with >200 items paginate; a partial seed would hide files).
+        if (item?.Folder != null && item.Children != null &&
+            item.AdditionalData?.ContainsKey("children@odata.nextLink") != true)
+        {
             _cache.Set(ChildrenKey(path), item.Children, PositiveTtl);
+        }
 
         return item;
     }
 
-    // List folder contents. Almost always a cache hit thanks to the expand above —
-    // GetItemAsync already stuffed the children in the cache like Peter stuffing his face.
+    // List folder contents — ALL of them. Follows @odata.nextLink so folders with
+    // hundreds/thousands of items don't get silently chopped at the first page.
+    // (Usually a cache hit anyway thanks to the expand seed above.)
     public async Task<List<DriveItem>> GetChildrenAsync(string davPath)
     {
         var path = ToGraphPath(davPath);
         var key = ChildrenKey(path);
 
-        if (_cache.TryGetValue(key, out List<DriveItem>? cached) && cached != null)
-            return cached;
+        if (_cache.TryGetValue(key, out List<DriveItem>? cachedList) && cachedList != null)
+            return cachedList;
 
         var driveId = await GetDriveIdAsync();
-        DriveItemCollectionResponse? resp;
+        DriveItemCollectionResponse? firstPage;
         try
         {
-            resp = string.IsNullOrEmpty(path)
+            firstPage = string.IsNullOrEmpty(path)
                 ? await _client.Drives[driveId].Items[await GetRootIdAsync()].Children.GetAsync()
                 : await _client.Drives[driveId].Root.ItemWithPath(path).Children.GetAsync();
         }
@@ -120,9 +139,17 @@ public class OneDriveProvider
             return [];
         }
 
-        var children = resp?.Value ?? [];
-        _cache.Set(key, children, PositiveTtl);
-        return children;
+        var all = new List<DriveItem>();
+        if (firstPage != null)
+        {
+            // PageIterator walks every page for us. No more "first 200 and a prayer."
+            var iterator = PageIterator<DriveItem, DriveItemCollectionResponse>
+                .CreatePageIterator(_client, firstPage, item => { all.Add(item); return true; });
+            await iterator.IterateAsync();
+        }
+
+        _cache.Set(key, all, PositiveTtl);
+        return all;
     }
 
     // Root's item ID, cached. Kills a redundant round trip on root children.
@@ -135,23 +162,147 @@ public class OneDriveProvider
         return _rootId;
     }
 
-    // Stream a file's bytes down to the client.
-    // "You know what, I am going to get that file and nothing is going to stop me."
-    public async Task<Stream?> GetContentAsync(string davPath)
+    // Stream a file's bytes, honoring an optional HTTP Range header. Uses OneDrive's
+    // pre-authenticated @microsoft.graph.downloadUrl, which lives on a CDN that speaks
+    // Range natively — so seeking a 2GB video doesn't download the first 1.9GB first.
+    // Returns the raw upstream response so the middleware can relay status + headers.
+    public async Task<HttpResponseMessage> DownloadAsync(string davPath, string? rangeHeader)
     {
-        var driveId = await GetDriveIdAsync();
-        var path = ToGraphPath(davPath);
-        return await _client.Drives[driveId].Root.ItemWithPath(path).Content.GetAsync();
+        var item = await GetItemAsync(davPath);
+        if (item == null)
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+        var url = item.AdditionalData != null &&
+                  item.AdditionalData.TryGetValue("@microsoft.graph.downloadUrl", out var u)
+            ? u?.ToString()
+            : null;
+
+        // 0-byte files (and the odd metadata-only item) have no download URL.
+        // Hand back an empty 200 rather than exploding. Nothing to see here.
+        if (string.IsNullOrEmpty(url))
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(Stream.Null) };
+
+        var req = new HttpRequestMessage(HttpMethod.Get, url);
+        if (!string.IsNullOrEmpty(rangeHeader))
+            req.Headers.TryAddWithoutValidation("Range", rangeHeader);
+
+        return await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
     }
 
-    // Upload a file. Like Peter squeezing into a small space — it'll go in, don't worry.
-    // Note: files over ~4MB should use upload sessions. That's a TODO. Don't tell Stewie.
-    public async Task UploadAsync(string davPath, Stream content)
+    // Upload a file. Small ones go up in a single PUT; big ones (>4MB) go through a
+    // chunked upload session, because Peter can't fit through the door all at once either.
+    public async Task UploadAsync(string davPath, Stream content, long? contentLength)
     {
         var driveId = await GetDriveIdAsync();
         var path = ToGraphPath(davPath);
-        await _client.Drives[driveId].Root.ItemWithPath(path).Content.PutAsync(content);
-        Invalidate(path); // new file — bust the cache so it shows up NOW
+
+        if (contentLength is > 0 and <= SimpleUploadLimit)
+        {
+            await _client.Drives[driveId].Root.ItemWithPath(path).Content.PutAsync(content);
+            Invalidate(path);
+            return;
+        }
+
+        // We need the total size for the Content-Range headers. If the client didn't
+        // tell us (chunked transfer, rare from Windows), buffer to learn it. Not elegant,
+        // but neither is Peter, and he gets by.
+        Stream source = content;
+        long total;
+        MemoryStream? buffered = null;
+        if (contentLength is > 0)
+        {
+            total = contentLength.Value;
+        }
+        else
+        {
+            buffered = new MemoryStream();
+            await content.CopyToAsync(buffered);
+            buffered.Position = 0;
+            source = buffered;
+            total = buffered.Length;
+        }
+
+        // Empty file? Simple PUT handles zero bytes fine. Don't over-engineer it.
+        if (total == 0)
+        {
+            await _client.Drives[driveId].Root.ItemWithPath(path).Content.PutAsync(Stream.Null);
+            Invalidate(path);
+            buffered?.Dispose();
+            return;
+        }
+
+        try
+        {
+            await UploadViaSessionAsync(driveId, path, source, total);
+        }
+        finally
+        {
+            buffered?.Dispose();
+        }
+
+        Invalidate(path);
+    }
+
+    // The chunked-upload workhorse. Creates a session, then PUTs 5 MiB slices with
+    // Content-Range headers straight to the session URL (pre-authed, no bearer needed).
+    private async Task UploadViaSessionAsync(string driveId, string path, Stream source, long total)
+    {
+        var sessionBody = new Microsoft.Graph.Drives.Item.Items.Item.CreateUploadSession.CreateUploadSessionPostRequestBody
+        {
+            Item = new DriveItemUploadableProperties
+            {
+                AdditionalData = new Dictionary<string, object> { ["@microsoft.graph.conflictBehavior"] = "replace" }
+            }
+        };
+
+        var session = await _client.Drives[driveId].Root.ItemWithPath(path)
+            .CreateUploadSession.PostAsync(sessionBody);
+
+        var uploadUrl = session?.UploadUrl
+            ?? throw new InvalidOperationException("Graph refused to open an upload session. Rude.");
+
+        var buffer = new byte[UploadChunkSize];
+        long pos = 0;
+        while (pos < total)
+        {
+            var want = (int)Math.Min(UploadChunkSize, total - pos);
+            var read = await ReadExactAsync(source, buffer, want);
+            if (read <= 0) break;
+
+            using var chunk = new ByteArrayContent(buffer, 0, read);
+            chunk.Headers.ContentLength = read;
+            chunk.Headers.ContentRange = new ContentRangeHeaderValue(pos, pos + read - 1, total);
+
+            using var put = new HttpRequestMessage(HttpMethod.Put, uploadUrl) { Content = chunk };
+            var resp = await Http.SendAsync(put);
+
+            // 202 = "keep 'em coming", 200/201 = "done, freakin' sweet". Anything else = trouble.
+            if (resp.StatusCode != HttpStatusCode.Accepted &&
+                resp.StatusCode != HttpStatusCode.OK &&
+                resp.StatusCode != HttpStatusCode.Created)
+            {
+                var detail = await resp.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"Upload chunk failed at byte {pos}: {(int)resp.StatusCode} {detail}");
+            }
+
+            pos += read;
+        }
+    }
+
+    // Reads up to 'count' bytes, looping until it has them or the stream ends —
+    // because a single ReadAsync can return fewer bytes than asked, and a short chunk
+    // would corrupt the upload. Persistence, unlike Peter's diets.
+    private static async Task<int> ReadExactAsync(Stream s, byte[] buffer, int count)
+    {
+        var got = 0;
+        while (got < count)
+        {
+            var n = await s.ReadAsync(buffer.AsMemory(got, count - got));
+            if (n == 0) break;
+            got += n;
+        }
+        return got;
     }
 
     // Delete. Permanent. Gone. Like Meg's self-esteem.

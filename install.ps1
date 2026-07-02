@@ -10,7 +10,7 @@
 .PARAMETER Port
     Local port for the WebDAV server (default: 8080)
 .EXAMPLE
-    iwr https://raw.githubusercontent.com/Avatorsinc/OneDriveAsADrive/main/install.ps1 -UseBasicParsing | iex
+    iwr https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest/download/install.ps1 -UseBasicParsing | iex
 .EXAMPLE
     .\install.ps1 -DriveLetter W -Port 9090
 #>
@@ -40,8 +40,9 @@ Write-Host ""
 # ── 1. Download latest release ───────────────────────────────────────────────
 Write-Step "Fetching latest release..."
 try {
-    $release = Invoke-RestMethod "https://api.github.com/repos/$RepoOwner/$RepoName/releases/latest"
-    $asset   = $release.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
+    $release   = Invoke-RestMethod "https://api.github.com/repos/$RepoOwner/$RepoName/releases/latest"
+    $asset     = $release.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
+    $hashAsset = $release.assets | Where-Object { $_.name -like "*.zip.sha256" } | Select-Object -First 1
     if (-not $asset) { Write-Fail "No zip asset found in latest release." }
 } catch {
     Write-Fail "Could not reach GitHub API: $_"
@@ -51,6 +52,23 @@ $zipPath = "$env:TEMP\$RepoName.zip"
 Write-Step "Downloading $($release.tag_name)..."
 Invoke-WebRequest $asset.browser_download_url -OutFile $zipPath -UseBasicParsing
 Write-OK "Downloaded to $zipPath"
+
+# ── 1b. Verify SHA256 ─────────────────────────────────────────────────────────
+# Don't run a self-contained exe fetched off the internet without checking it's the
+# real one. Catches corrupted or tampered-in-transit downloads. (It does NOT protect
+# against a compromised GitHub account — that attacker republishes the hash too.)
+if ($hashAsset) {
+    Write-Step "Verifying SHA256..."
+    $expected = ((Invoke-WebRequest $hashAsset.browser_download_url -UseBasicParsing).Content -split '\s+')[0].Trim().ToUpper()
+    $actual   = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToUpper()
+    if ($expected -ne $actual) {
+        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        Write-Fail "SHA256 mismatch! Expected $expected but got $actual. Aborting — do NOT run this."
+    }
+    Write-OK "SHA256 verified"
+} else {
+    Write-Host "  [WARN] No .sha256 published for this release — skipping integrity check." -ForegroundColor Yellow
+}
 
 # ── 2. Extract ───────────────────────────────────────────────────────────────
 Write-Step "Installing to $InstallDir..."
@@ -95,13 +113,24 @@ Start-Sleep -Seconds 4
 if ($proc.HasExited) { Write-Fail "Server exited unexpectedly. Check Event Viewer / run manually for errors." }
 Write-OK "Server running (PID $($proc.Id))"
 
-# ── 6. Map the drive ──────────────────────────────────────────────────────────
+# ── 6. Map the drive (with the per-install secret) ────────────────────────────
+# The server generates a random secret on first start and writes it here. Read it
+# and hand it to net use so Windows authenticates. No secret = no drive.
+$secretPath = "$InstallDir\.secret"
+$secret = $null
+for ($i = 0; $i -lt 10 -and -not $secret; $i++) {
+    if (Test-Path $secretPath) { $secret = (Get-Content $secretPath -Raw).Trim() }
+    if (-not $secret) { Start-Sleep -Milliseconds 500 }
+}
+if (-not $secret) { Write-Fail "Server never wrote its secret file ($secretPath). Check the server window for errors." }
+
 Write-Step "Mapping $DriveMap to http://localhost:$Port/..."
 if (Test-Path "$DriveMap\") { net use $DriveMap /delete /y | Out-Null }
-$result = net use $DriveMap "http://localhost:$Port/" /persistent:yes 2>&1
+$result = net use $DriveMap "http://localhost:$Port/" /user:onedrive $secret /persistent:yes 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  [WARN] net use failed: $result" -ForegroundColor Yellow
-    Write-Host "         Try manually: net use $DriveMap http://localhost:$Port/" -ForegroundColor DarkYellow
+    Write-Host "         Try manually: net use $DriveMap http://localhost:$Port/ /user:onedrive <secret>" -ForegroundColor DarkYellow
+    Write-Host "         (secret is in $secretPath)" -ForegroundColor DarkYellow
 } else {
     Write-OK "Drive $DriveMap mapped"
 }

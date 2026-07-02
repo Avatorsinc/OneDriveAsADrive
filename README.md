@@ -70,6 +70,8 @@ Or via the portal: **Entra admin center → Enterprise Applications → Microsof
 
 After that one click, every user in the tenant can use OneDriveAsADrive with no further prompts.
 
+> ⚠️ **Check your organization's policy first.** On a work/school tenant, using a tool that rides Microsoft's first-party Graph client to reach your files may fall under your employer's acceptable-use or conditional-access rules. This project accesses only *your own* files with *your own* credentials — it doesn't bypass authentication or MFA — but if you don't own the tenant, clear it with your IT/security team before relying on it. Don't be the reason for a Monday-morning meeting.
+
 ---
 
 ## Quick Install
@@ -100,14 +102,17 @@ The installer will:
    Set-Service WebClient -StartupType Automatic
    Start-Service WebClient
    ```
+   > **About `BasicAuthLevel = 2`:** this is a *machine-wide* setting that allows the Windows WebDAV client to send Basic credentials to HTTP (non-HTTPS) servers. OneDriveAsADrive **requires** it — the server authenticates every request with a per-install secret over `http://localhost`, and without this setting Windows silently refuses to send it, so mapping fails with error 1244/1312. The credentials only ever travel over loopback (`127.0.0.1`), never the network. The Windows default is `1` (HTTPS only); the [Uninstall](#uninstall) section shows how to revert it.
 4. Run the app:
    ```powershell
    .\OneDriveAsADrive.exe
    ```
-5. Map the drive (in a separate PowerShell window):
+   On startup it prints the exact `net use` command **including the auth secret** it generated. Copy that line.
+5. Map the drive (in a separate PowerShell window) using the secret from step 4:
    ```powershell
-   net use Z: http://localhost:8080/ /persistent:yes
+   net use Z: http://localhost:8080/ /user:onedrive <secret> /persistent:yes
    ```
+   > The server requires this per-install secret on **every** request (HTTP Basic auth), so a drive mapped without it gets a 401. The secret lives in `%LOCALAPPDATA%\OneDriveAsADrive\.secret`.
 
 ---
 
@@ -121,7 +126,7 @@ Example — use port 9090 and map as `W:`:
 
 ```powershell
 .\OneDriveAsADrive.exe --urls http://localhost:9090
-net use W: http://localhost:9090/ /persistent:yes
+net use W: http://localhost:9090/ /user:onedrive <secret> /persistent:yes
 ```
 
 ---
@@ -135,9 +140,13 @@ net use Z: /delete
 # Kill the server
 Get-Process OneDriveAsADrive -ErrorAction SilentlyContinue | Stop-Process
 
-# Remove startup entry and files
+# Remove startup entry and files (this also deletes the .secret)
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\OneDriveAsADrive.lnk" -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:LOCALAPPDATA\OneDriveAsADrive" -Recurse -Force -ErrorAction SilentlyContinue
+
+# Revert the machine-wide WebDAV setting the installer changed (run as Administrator).
+# Default is 1 (HTTPS only). Skip if other WebDAV tools on this machine rely on it.
+Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\WebClient\Parameters" -Name BasicAuthLevel -Value 1
 ```
 
 ---
@@ -152,6 +161,18 @@ Remove-Item "$env:LOCALAPPDATA\OneDriveAsADrive" -Recurse -Force -ErrorAction Si
 
 ---
 
+## Security
+
+The server holds your Graph token, so access to it must be controlled. It is defended three ways:
+
+- **Loopback only** — binds to `localhost`; the middleware also rejects any request whose `Host` header isn't a loopback name, which closes the DNS-rebinding vector (a malicious website can't reach it through your browser).
+- **Per-install secret** — every request must present a random secret (HTTP Basic auth) generated on first run and stored in `%LOCALAPPDATA%\OneDriveAsADrive\.secret`. This stops other local users or low-privilege processes on a shared machine from reaching your OneDrive. (This is why the installer sets `BasicAuthLevel=2` — so Windows will send Basic credentials over loopback HTTP.)
+- **Verified downloads** — the installer checks each release zip against its published SHA256 before running it. Note this guards against download corruption or tampering in transit — not against a compromised GitHub account, since an attacker there could republish the hash too.
+
+**Threat model:** this protects against other users and untrusted processes on the same machine, and against web-based attacks. It does **not** defend against malware already running as *you* — such code can read your token cache and files regardless. Loopback Basic auth is unencrypted, which is fine over `127.0.0.1` but means you should not expose this server off-host.
+
+---
+
 ## Troubleshooting
 
 **`net use` returns error 67 (network name not found)**
@@ -160,6 +181,10 @@ Remove-Item "$env:LOCALAPPDATA\OneDriveAsADrive" -Recurse -Force -ErrorAction Si
 
 **`net use` returns error 1312 (session does not exist)**
 - Run `Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\WebClient\Parameters" -Name BasicAuthLevel -Value 2` as Administrator, then `Restart-Service WebClient`
+
+**`net use` returns error 1244 / access denied, or the drive shows but folders are empty with a 401**
+- The server requires the per-install secret. Map with `/user:onedrive <secret>` — the secret is printed on server startup and stored in `%LOCALAPPDATA%\OneDriveAsADrive\.secret`.
+- `BasicAuthLevel=2` must be set (see above) or Windows won't send the secret over HTTP.
 
 **Auth popup appears every time**
 - This means WAM can't find a cached account. Sign in to your work account in Windows Settings → Accounts → Access work or school.

@@ -10,6 +10,7 @@ using OneDriveAsADrive.WebDav;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddMemoryCache(); // so Explorer's clingy re-probing hits RAM, not Redmond
+builder.Services.AddSingleton<ServerSecret>(); // per-install Basic-auth password
 builder.Services.AddSingleton<TokenManager>();
 builder.Services.AddSingleton<OneDriveProvider>();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
@@ -38,10 +39,15 @@ catch (Exception ex)
 
 app.UseMiddleware<WebDavMiddleware>();
 
-// Log how to mount the drive. Once per startup. Like Quagmire announcing his arrival. Giggity.
+// Log how to mount the drive, secret and all. Once per startup.
+// Like Quagmire announcing his arrival. Giggity.
+var secret = app.Services.GetRequiredService<ServerSecret>();
 var url = builder.WebHost.GetSetting("urls") ?? "http://localhost:8080";
+var mountUrl = url.TrimEnd('/') + "/";
 app.Logger.LogInformation("WebDAV listening on {Url} — everybody, everybody, everybody!", url);
-app.Logger.LogInformation("Mount with:  net use Z: {MountUrl} /persistent:yes", url.TrimEnd('/') + "/");
+app.Logger.LogInformation("Secret stored at {Path}", secret.FilePath);
+app.Logger.LogInformation("Mount with:  net use Z: {MountUrl} /user:{User} {Secret} /persistent:yes",
+    mountUrl, secret.Username, secret.Value);
 app.Logger.LogInformation("Unmount with: net use Z: /delete");
 
 await app.RunAsync();

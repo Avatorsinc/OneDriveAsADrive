@@ -1,6 +1,0 @@
-@OneDriveAsADrive_HostAddress = http://localhost:5141
-
-GET {{OneDriveAsADrive_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
