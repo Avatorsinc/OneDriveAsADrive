@@ -12,7 +12,7 @@ Mount your **OneDrive for Business** as a real Windows drive letter (e.g. `Z:\`)
 
 | App running | Drive in File Explorer |
 |---|---|
-| ![Building and running OneDriveAsADrive](screenshots/build.png) | ![Mapped network drive in File Explorer](screenshots/drive.png) |
+| ![Building and running OneDriveAsADrive](screenshots/Build.png) | ![Mapped network drive in File Explorer](screenshots/AddedDrive.png) |
 
 ---
 

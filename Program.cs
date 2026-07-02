@@ -9,6 +9,7 @@ using OneDriveAsADrive.WebDav;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddMemoryCache(); // so Explorer's clingy re-probing hits RAM, not Redmond
 builder.Services.AddSingleton<TokenManager>();
 builder.Services.AddSingleton<OneDriveProvider>();
 builder.Logging.SetMinimumLevel(LogLevel.Information);

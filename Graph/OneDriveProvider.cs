@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 using Microsoft.Graph.Models.ODataErrors;
@@ -8,17 +9,31 @@ namespace OneDriveAsADrive.Graph;
 
 // This whole class is basically Peter trying to find where he put his files.
 // Except it actually works. Unlike Peter.
+//
+// Performance note: Windows Explorer is CLINGY. It re-asks for the same folders
+// and probes the same phantom files (Desktop.ini, thumbs.db) over and over like
+// Stewie asking "are we there yet." So we cache aggressively for a few seconds.
 public class OneDriveProvider
 {
     private readonly GraphServiceClient _client;
+    private readonly IMemoryCache _cache;
+
     private string? _driveId;
+    private string? _rootId;
     private readonly SemaphoreSlim _initLock = new(1, 1);
 
-    public OneDriveProvider(TokenManager tokenManager)
+    // How long we trust cached data. Short enough that changes show up quickly,
+    // long enough that Explorer's rapid-fire probing hits cache instead of Redmond.
+    private static readonly TimeSpan PositiveTtl = TimeSpan.FromSeconds(12);
+    // Phantom-file 404s basically never become real, so cache the "nope" longer.
+    private static readonly TimeSpan NegativeTtl = TimeSpan.FromSeconds(45);
+
+    public OneDriveProvider(TokenManager tokenManager, IMemoryCache cache)
     {
         var authProvider = new BaseBearerTokenAuthenticationProvider(
             new MsalTokenProvider(tokenManager));
         _client = new GraphServiceClient(authProvider);
+        _cache = cache;
     }
 
     // Lazy-loads the drive ID on first use.
@@ -42,48 +57,82 @@ public class OneDriveProvider
         finally { _initLock.Release(); }
     }
 
-    // Get metadata for any path. Root ("/") or file/folder.
-    // "Giggity giggity — I'll take that DriveItem."
-    // Returns null on 404 instead of throwing — Windows constantly probes for
-    // phantom files like Desktop.ini and AutoRun.inf, and we're not gonna have a
-    // stack-trace aneurysm every single time. Just calmly say "nope." Roadhouse.
+    // Get metadata for a path — AND, if it's a folder, grab its children in the SAME
+    // network call via $expand=children. One round trip instead of two. Freakin' sweet.
+    //
+    // Results are cached. 404s return null (and are cached) instead of throwing —
+    // Windows probes for phantom files constantly and we're not gonna cry every time.
     public async Task<DriveItem?> GetItemAsync(string davPath)
     {
-        var driveId = await GetDriveIdAsync();
         var path = ToGraphPath(davPath);
+        var key = ItemKey(path);
+
+        if (_cache.TryGetValue(key, out DriveItem? cached))
+            return cached; // could be a cached null (negative hit) — that's fine
+
+        var driveId = await GetDriveIdAsync();
+        DriveItem? item;
         try
         {
-            return string.IsNullOrEmpty(path)
-                ? await _client.Drives[driveId].Root.GetAsync()
-                : await _client.Drives[driveId].Root.ItemWithPath(path).GetAsync();
+            item = string.IsNullOrEmpty(path)
+                ? await _client.Drives[driveId].Root.GetAsync(rc =>
+                    rc.QueryParameters.Expand = ["children"])
+                : await _client.Drives[driveId].Root.ItemWithPath(path).GetAsync(rc =>
+                    rc.QueryParameters.Expand = ["children"]);
         }
         catch (ODataError e) when (e.ResponseStatusCode == 404)
         {
             // File doesn't exist. That's not an error, that's just Tuesday.
+            _cache.Set(key, (DriveItem?)null, NegativeTtl);
             return null;
         }
+
+        _cache.Set(key, item, PositiveTtl);
+
+        // Bonus: the expand handed us the children for free, so seed THAT cache too.
+        // Now the PROPFIND that follows is an instant cache hit. Giggity.
+        if (item?.Folder != null && item.Children != null)
+            _cache.Set(ChildrenKey(path), item.Children, PositiveTtl);
+
+        return item;
     }
 
-    // List folder contents. Depth: 1. Like Chris looking in the fridge — only one level deep.
+    // List folder contents. Almost always a cache hit thanks to the expand above —
+    // GetItemAsync already stuffed the children in the cache like Peter stuffing his face.
     public async Task<List<DriveItem>> GetChildrenAsync(string davPath)
     {
-        var driveId = await GetDriveIdAsync();
         var path = ToGraphPath(davPath);
+        var key = ChildrenKey(path);
 
+        if (_cache.TryGetValue(key, out List<DriveItem>? cached) && cached != null)
+            return cached;
+
+        var driveId = await GetDriveIdAsync();
         DriveItemCollectionResponse? resp;
-        if (string.IsNullOrEmpty(path))
+        try
         {
-            // Root children need the actual root item ID.
-            // Microsoft in v6: "Root? Never heard of her." — Roadhouse.
-            var root = await _client.Drives[driveId].Root.GetAsync();
-            resp = await _client.Drives[driveId].Items[root!.Id!].Children.GetAsync();
+            resp = string.IsNullOrEmpty(path)
+                ? await _client.Drives[driveId].Items[await GetRootIdAsync()].Children.GetAsync()
+                : await _client.Drives[driveId].Root.ItemWithPath(path).Children.GetAsync();
         }
-        else
+        catch (ODataError e) when (e.ResponseStatusCode == 404)
         {
-            resp = await _client.Drives[driveId].Root.ItemWithPath(path).Children.GetAsync();
+            return [];
         }
 
-        return resp?.Value ?? [];
+        var children = resp?.Value ?? [];
+        _cache.Set(key, children, PositiveTtl);
+        return children;
+    }
+
+    // Root's item ID, cached. Kills a redundant round trip on root children.
+    private async Task<string> GetRootIdAsync()
+    {
+        if (_rootId != null) return _rootId;
+        var driveId = await GetDriveIdAsync();
+        var root = await _client.Drives[driveId].Root.GetAsync();
+        _rootId = root?.Id ?? throw new InvalidOperationException("No root ID. The deuce?");
+        return _rootId;
     }
 
     // Stream a file's bytes down to the client.
@@ -102,6 +151,7 @@ public class OneDriveProvider
         var driveId = await GetDriveIdAsync();
         var path = ToGraphPath(davPath);
         await _client.Drives[driveId].Root.ItemWithPath(path).Content.PutAsync(content);
+        Invalidate(path); // new file — bust the cache so it shows up NOW
     }
 
     // Delete. Permanent. Gone. Like Meg's self-esteem.
@@ -110,6 +160,7 @@ public class OneDriveProvider
         var driveId = await GetDriveIdAsync();
         var path = ToGraphPath(davPath);
         await _client.Drives[driveId].Root.ItemWithPath(path).DeleteAsync();
+        Invalidate(path);
     }
 
     // Create a folder. "Victory is mine! A new folder has been born!"
@@ -129,14 +180,11 @@ public class OneDriveProvider
         };
 
         if (string.IsNullOrEmpty(parentPath))
-        {
-            var root = await _client.Drives[driveId].Root.GetAsync();
-            await _client.Drives[driveId].Items[root!.Id!].Children.PostAsync(newFolder);
-        }
+            await _client.Drives[driveId].Items[await GetRootIdAsync()].Children.PostAsync(newFolder);
         else
-        {
             await _client.Drives[driveId].Root.ItemWithPath(parentPath).Children.PostAsync(newFolder);
-        }
+
+        Invalidate(path);
     }
 
     // Move or rename an item. PATCH with a new parent/name.
@@ -161,7 +209,25 @@ public class OneDriveProvider
         };
 
         await _client.Drives[driveId].Root.ItemWithPath(srcPath).PatchAsync(patch);
+        Invalidate(srcPath);  // it left here
+        Invalidate(destPath); // ...and landed there
     }
+
+    // Nuke cached entries for a path and its parent folder listing, so writes show
+    // up immediately instead of after the TTL. Cache invalidation: one of the two
+    // hard problems in computer science. The other is Meg.
+    private void Invalidate(string path)
+    {
+        _cache.Remove(ItemKey(path));
+        _cache.Remove(ChildrenKey(path));
+
+        var parent = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "";
+        _cache.Remove(ItemKey(parent));
+        _cache.Remove(ChildrenKey(parent));
+    }
+
+    private static string ItemKey(string path) => "item:" + path;
+    private static string ChildrenKey(string path) => "children:" + path;
 
     // "/Documents/file.txt" → "Documents/file.txt" — Graph doesn't want the leading slash.
     // Deucedly inconsistent API design, but here we are.
