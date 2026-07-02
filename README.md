@@ -1,6 +1,8 @@
 # OneDriveAsADrive
 
-Mount your **OneDrive for Business** as a real Windows drive letter (e.g. `Z:\`) — no failed WebDAV connections, no app registration, no MFA prompts.
+Mount your **OneDrive** — personal *or* work/school (OneDrive for Business) — as a real Windows drive letter (e.g. `Z:\`). No failed WebDAV connections, no app registration on your side.
+
+> **Personal OneDrive works out of the box.** Work/school accounts work too, but locked-down corporate tenants may need a one-time admin consent — see [Accounts & Access](#accounts--access).
 
 [![GitHub release](https://img.shields.io/github/v/release/Avatorsinc/OneDriveAsADrive)](https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -28,7 +30,7 @@ File Explorer ──► Z:\ (WebDAV on localhost)
                     │
               Microsoft Graph API
                     │
-              OneDrive for Business
+           OneDrive (personal or work)
 ```
 
 ---
@@ -36,9 +38,37 @@ File Explorer ──► Z:\ (WebDAV on localhost)
 ## Requirements
 
 - Windows 10 or 11
-- **OneDrive sync client installed and signed in** with your work/school Microsoft 365 account
+- A Microsoft account with OneDrive — **personal** (works out of the box) or **work/school** (see [Accounts & Access](#accounts--access))
 - PowerShell 5.1+ (comes with Windows)
 - No .NET install needed — the release is self-contained
+
+---
+
+## Accounts & Access
+
+OneDriveAsADrive signs in through the **Microsoft Graph Command Line Tools** public client — Microsoft's own app ID — using the Windows account broker. There's **no app to register** on your side. On first run you'll get a one-time consent screen:
+
+![First-run access request](screenshots/accessrequest.png)
+
+It only ever asks for `Files.ReadWrite` (delegated) — read/write access to **your own** OneDrive. We deliberately avoid the broader `Files.ReadWrite.All` (which would cover all SharePoint/shared files and is far more likely to trip tenant restrictions).
+
+### Personal OneDrive — works out of the box
+
+Sign in with a personal Microsoft account (`@outlook.com`, `@hotmail.com`, `@live.com`, or any personal MSA), click **Accept**, done. Personal accounts consent themselves — no admin, no extra steps. You get your 5 GB (or whatever your plan is) mounted as a drive.
+
+### Work / School OneDrive — may need one-time admin consent
+
+Many corporate tenants block users from consenting to apps on their own. If you see **"Approval required"** instead of an **Accept** button, your tenant needs a **one-time admin consent** for the Graph CLI app. This is normal and expected — it's a tenant security setting, not a bug.
+
+A Global Admin (or Cloud Application Admin) grants it **once for the whole organization** by opening this URL, signing in as admin, and clicking Accept:
+
+```
+https://login.microsoftonline.com/common/adminconsent?client_id=14d82eec-204b-4c2f-b7e8-296a70dab67e
+```
+
+Or via the portal: **Entra admin center → Enterprise Applications → Microsoft Graph Command Line Tools → Permissions → Grant admin consent**.
+
+After that one click, every user in the tenant can use OneDriveAsADrive with no further prompts.
 
 ---
 
