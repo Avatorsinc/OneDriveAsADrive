@@ -12,7 +12,11 @@ public class TokenManager
     // Microsoft Graph Command Line Tools client ID — Microsoft's own public app.
     // No app registration needed. Like finding a parking spot right at the front.
     private const string ClientId = "14d82eec-204b-4c2f-b7e8-296a70dab67e";
-    private static readonly string[] Scopes = ["Files.ReadWrite.All", "offline_access"];
+    // Files.ReadWrite = your OWN OneDrive only. We deliberately DON'T ask for
+    // Files.ReadWrite.All (all files incl. SharePoint) — that broad scope trips
+    // tenant admin-consent walls. Peter doesn't need the keys to the whole studio,
+    // just his own dressing room.
+    private static readonly string[] Scopes = ["Files.ReadWrite", "offline_access"];
 
     private readonly IPublicClientApplication _app;
     private readonly ILogger<TokenManager> _log;
