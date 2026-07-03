@@ -15,7 +15,16 @@
     "windows",
     "drive",
     "graph",
-    "mount"
+    "mount",
+    "network-drive",
+    "mapped-drive",
+    "drive-letter",
+    "file-explorer",
+    "map-network-drive",
+    "dfs",
+    "file-share",
+    "intune",
+    "gpo"
   ],
   "os": [
     "win32"

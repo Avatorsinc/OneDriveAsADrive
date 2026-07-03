@@ -1,6 +1,6 @@
 # OneDriveAsADrive
 
-Mount your **OneDrive** — personal *or* work/school — **and SharePoint document libraries** as real Windows drive letters (e.g. `O:\`, `S:\`). One drive letter per library. No failed WebDAV connections, no app registration on your side. Deployable by IT to a whole fleet.
+Map **OneDrive** — personal *or* work/school — **and SharePoint document libraries** as real Windows **network drive letters** in File Explorer (e.g. `O:\`, `S:\`). One drive letter per library, like the mapped drives your file server used to give you — a modern stand-in for DFS and on-prem network shares. No failed WebDAV connections, no app registration on your side. Deployable by IT to a whole fleet via Intune/GPO.
 
 > **Personal OneDrive works out of the box.** Work/school and SharePoint work too, but they use broader Graph permissions that locked-down tenants gate behind a one-time admin consent — see [Accounts & Access](#accounts--access).
 
@@ -282,6 +282,22 @@ The server holds your Graph token, so access to it must be controlled. It is def
 - **Verified downloads** — the installer checks each release zip against its published SHA256 before running it. Note this guards against download corruption or tampering in transit — not against a compromised GitHub account, since an attacker there could republish the hash too.
 
 **Threat model:** this protects against other users and untrusted processes on the same machine, and against web-based attacks. It does **not** defend against malware already running as *you* — such code can read your token cache and files regardless. Loopback Basic auth is unencrypted, which is fine over `127.0.0.1` but means you should not expose this server off-host.
+
+---
+
+## FAQ
+
+**Can I map OneDrive as a network drive letter in File Explorer?**
+Yes — that's exactly what this does. OneDrive appears as a normal drive (`Z:\`) in File Explorer, browsable like any mapped network drive, with no sync folder eating your disk.
+
+**Can I map a SharePoint document library as a network drive?**
+Yes — each document library becomes its own drive letter (see [SharePoint & Multiple Drives](#sharepoint--multiple-drives)). This is the modern-auth answer to the classic "map SharePoint with WebDAV" approach that broke when Microsoft 365 tenants moved to OAuth2 — the old `net use Z: https://tenant.sharepoint.com/...` path fails on modern tenants; this works because auth goes through Microsoft Graph instead.
+
+**Can this replace DFS or our on-prem file shares?**
+For teams whose files already live in SharePoint/OneDrive, it gives users the same experience a DFS namespace did — fixed drive letters, deployable fleet-wide via [Intune/GPO](#it-deployment-remote--no-code), no user training. Honest caveats: access is per-user (each user sees only what their account can reach), there's no cross-user file locking (last write wins outside Office's own co-authoring), and WebDAV throughput is slower than SMB for bulk operations. Right tool for "users need their team libraries as drives," wrong tool for "a build server hammers a share."
+
+**Why not just use the OneDrive sync client or "Add shortcut to OneDrive"?**
+The sync client copies state to disk, needs per-user library setup clicks, and struggles with many/large libraries. A mapped drive is a live view — nothing to sync, nothing to reset, and legacy apps that expect a real drive letter just work. The two coexist fine; this isn't either/or.
 
 ---
 
