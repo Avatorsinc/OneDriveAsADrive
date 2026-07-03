@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build-and-release:
@@ -58,3 +59,21 @@ jobs:
             install.ps1
           draft: false
           prerelease: false
+
+      # Publish a copy of the npm package to GitHub Packages so it shows up in the repo's
+      # "Packages" sidebar. GitHub Packages requires an owner-scoped name, so we rename to
+      # @avatorsinc/... just for this publish — the canonical unscoped "onedriveasadrive"
+      # on npmjs.com is published manually and stays the name users npx.
+      - name: Setup Node (GitHub Packages registry)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+
+      - name: Publish npm package to GitHub Packages
+        working-directory: npm
+        run: |
+          npm pkg set name=@avatorsinc/onedriveasadrive
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

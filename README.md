@@ -7,6 +7,7 @@ Mount your **OneDrive** — personal *or* work/school — **and SharePoint docum
 > ⚠️ **Upgrading from v1.1.x?** v1.2 changed the drive URLs: drives are now served under a per-letter prefix (`http://localhost:8080/z/`, not `/`). Your existing mapped drive will stop working the moment the new version starts. **Re-run the installer** — it detects and removes the stale mapping and remaps every drive under the new URLs.
 
 [![GitHub release](https://img.shields.io/github/v/release/Avatorsinc/OneDriveAsADrive)](https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest)
+[![npm](https://img.shields.io/npm/v/onedriveasadrive)](https://www.npmjs.com/package/onedriveasadrive)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Build](https://github.com/Avatorsinc/OneDriveAsADrive/actions/workflows/release.yml/badge.svg)](https://github.com/Avatorsinc/OneDriveAsADrive/actions)
 
@@ -324,3 +325,5 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+> OneDriveAsADrive is an independent open-source project, not affiliated with or endorsed by Microsoft. OneDrive, SharePoint, and Microsoft 365 are trademarks of Microsoft Corporation.
