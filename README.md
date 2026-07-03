@@ -167,7 +167,7 @@ Machine-wide wins if both exist. No config at all → a single OneDrive on `Z:` 
 
 > **Moving files between drives:** each drive is a separate Graph drive, so dragging a file from `S:` to `O:` can't be a server-side move — Windows falls back to **copy-then-delete** (a full download + re-upload). Moves *within* a single drive are instant.
 
-### Proof: one file, two views
+
 
 ![A SharePoint document library mounted as a Windows drive — the same file appears both in File Explorer and in SharePoint online](screenshots/sharepoint.png)
 
