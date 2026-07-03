@@ -29,9 +29,21 @@ public class TokenManager
     private readonly IPublicClientApplication _app;
     private readonly ILogger<TokenManager> _log;
 
-    // Summon the console window handle. Peter once did this to yell at his TV. Same energy.
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr GetConsoleWindow();
+    // Summon a window handle for the WAM sign-in popup. Peter once did this to yell at his TV.
+    // WAM REFUSES to prompt without a parent HWND (window_handle_required). A background WinExe
+    // has no console, so we fall back to the foreground window, then the desktop — anything
+    // non-zero — so the very first interactive sign-in works even when we're running hidden.
+    [DllImport("kernel32.dll")] private static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]   private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")]   private static extern IntPtr GetDesktopWindow();
+
+    private static IntPtr ParentWindow()
+    {
+        var h = GetConsoleWindow();
+        if (h == IntPtr.Zero) h = GetForegroundWindow();
+        if (h == IntPtr.Zero) h = GetDesktopWindow();
+        return h;
+    }
 
     public TokenManager(ILogger<TokenManager> log, MountConfig config)
     {
@@ -82,7 +94,7 @@ public class TokenManager
         // Interactive WAM — Windows will use the already-signed-in work account.
         // Should be a quick popup at worst. NOT a full MFA rodeo. Victory is mine!
         var result = await _app.AcquireTokenInteractive(_scopes)
-            .WithParentActivityOrWindow(GetConsoleWindow())
+            .WithParentActivityOrWindow(ParentWindow())
             .ExecuteAsync();
 
         return result.AccessToken;
