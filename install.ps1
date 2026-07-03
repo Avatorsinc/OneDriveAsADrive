@@ -1,22 +1,27 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Installs OneDriveAsADrive — mounts your OneDrive for Business as a local drive letter.
+    Installs OneDriveAsADrive — mounts OneDrive and/or SharePoint libraries as local drive letters.
 .DESCRIPTION
-    Downloads the latest release, configures the WebClient service for HTTP WebDAV,
-    adds a startup entry, runs the server, and maps the drive.
+    Downloads the latest release, verifies it, configures the WebClient service for HTTP WebDAV,
+    registers a hidden background Scheduled Task that runs at logon, starts the server, and maps
+    every drive described in config.json (or a single OneDrive on Z: if there's no config).
 .PARAMETER DriveLetter
-    Drive letter to map (default: Z)
+    Drive letter for the default single-OneDrive mount when no config.json is present (default: Z).
 .PARAMETER Port
-    Local port for the WebDAV server (default: 8080)
+    Local port for the WebDAV server (default: 8080, or the port from config.json).
+.PARAMETER Config
+    Optional path to a config.json to deploy machine-wide (to %ProgramData%). Requires admin.
+    Use this to push SharePoint + OneDrive mounts to a machine (IT deployment).
 .EXAMPLE
     iwr https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest/download/install.ps1 -UseBasicParsing | iex
 .EXAMPLE
-    .\install.ps1 -DriveLetter W -Port 9090
+    .\install.ps1 -Config .\config.json
 #>
 param(
     [string]$DriveLetter = "Z",
-    [int]$Port = 8080
+    [int]$Port = 8080,
+    [string]$Config
 )
 
 Set-StrictMode -Version Latest
@@ -26,7 +31,7 @@ $RepoOwner  = "Avatorsinc"
 $RepoName   = "OneDriveAsADrive"
 $InstallDir = "$env:LOCALAPPDATA\$RepoName"
 $ExePath    = "$InstallDir\$RepoName.exe"
-$DriveMap   = "${DriveLetter}:"
+$TaskName   = "OneDriveAsADrive"
 
 function Write-Step([string]$msg) { Write-Host "  $msg" -ForegroundColor Cyan }
 function Write-OK([string]$msg)   { Write-Host "  [OK] $msg" -ForegroundColor Green }
@@ -36,6 +41,18 @@ Write-Host ""
 Write-Host "OneDriveAsADrive Installer" -ForegroundColor White
 Write-Host "==========================" -ForegroundColor DarkGray
 Write-Host ""
+
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+# ── 0. Deploy a supplied config.json machine-wide (IT scenario) ────────────────
+if ($Config) {
+    if (-not (Test-Path $Config)) { Write-Fail "Config file not found: $Config" }
+    if (-not $isAdmin) { Write-Fail "-Config deploys to %ProgramData% and needs Administrator." }
+    $machineCfgDir = "$env:ProgramData\$RepoName"
+    New-Item -ItemType Directory -Force $machineCfgDir | Out-Null
+    Copy-Item $Config "$machineCfgDir\config.json" -Force
+    Write-OK "Deployed config to $machineCfgDir\config.json"
+}
 
 # ── 1. Download latest release ───────────────────────────────────────────────
 Write-Step "Fetching latest release..."
@@ -72,15 +89,52 @@ if ($hashAsset) {
 
 # ── 2. Extract ───────────────────────────────────────────────────────────────
 Write-Step "Installing to $InstallDir..."
-if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
+# Stop any running instance so we can overwrite the exe.
+Get-Process $RepoName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+if (Test-Path $InstallDir) {
+    # Keep the .secret and any per-user config; nuke the rest.
+    Get-ChildItem $InstallDir -Exclude ".secret","config.json" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
 Expand-Archive $zipPath $InstallDir -Force
 Remove-Item $zipPath -Force
 Write-OK "Extracted"
 
+# ── 2b. Read effective config (to know which drives to map + the port) ─────────
+# The SERVER reads config.json too, so the installer and the exe MUST agree on both the
+# drive letters and the port. If there's no config anywhere, we WRITE one — otherwise the
+# server would fall back to a hardcoded Z: while we mapped -DriveLetter, and every request
+# to the wrong prefix would 404. Config is the single source of truth for the port.
+$cfg = $null
+$cfgPath = $null
+foreach ($p in @("$env:ProgramData\$RepoName\config.json", "$env:LOCALAPPDATA\$RepoName\config.json")) {
+    if (Test-Path $p) {
+        try { $cfg = Get-Content $p -Raw | ConvertFrom-Json; $cfgPath = $p; break }
+        catch { Write-Host "  [WARN] Ignoring malformed $p" -ForegroundColor Yellow }
+    }
+}
+if (-not $cfg) {
+    $cfgPath = "$env:LOCALAPPDATA\$RepoName\config.json"
+    New-Item -ItemType Directory -Force (Split-Path $cfgPath) | Out-Null
+    $cfg = [pscustomobject]@{
+        port   = $Port
+        mounts = @([pscustomobject]@{ letter = $DriveLetter.ToUpper(); type = "onedrive"; name = "OneDrive" })
+    }
+    ($cfg | ConvertTo-Json -Depth 5) | Set-Content $cfgPath -Encoding UTF8
+    Write-OK "Wrote default config to $cfgPath ($($DriveLetter.ToUpper()): -> OneDrive)"
+} else {
+    Write-OK "Using config: $cfgPath"
+}
+# Port comes from config so the background task and the drive mappings never disagree.
+if ($PSBoundParameters.ContainsKey('Port') -and [int]$cfg.port -ne $Port) {
+    Write-Host "  [WARN] -Port $Port ignored — config.json says port $($cfg.port). Edit config.json to change it." -ForegroundColor Yellow
+}
+$Port = [int]$cfg.port
+$mounts = @($cfg.mounts)
+
 # ── 3. WebClient service + HTTP auth registry tweak ──────────────────────────
 Write-Step "Configuring WebDAV (requires admin for registry)..."
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($isAdmin) {
     $webClientParams = "HKLM:\SYSTEM\CurrentControlSet\Services\WebClient\Parameters"
     Set-ItemProperty $webClientParams -Name BasicAuthLevel       -Value 2  -Type DWord -Force
@@ -93,48 +147,87 @@ if ($isAdmin) {
     Write-Host "         Run this script as Administrator to enable HTTP WebDAV properly." -ForegroundColor DarkYellow
 }
 
-# ── 4. Startup entry (current user, no admin needed) ─────────────────────────
-Write-Step "Adding startup entry..."
-$startupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$lnkPath       = "$startupFolder\$RepoName.lnk"
-$shell    = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($lnkPath)
-$shortcut.TargetPath  = $ExePath
-$shortcut.Arguments   = "--urls http://localhost:$Port"
-$shortcut.WindowStyle = 7
-$shortcut.Description = "OneDriveAsADrive WebDAV bridge"
-$shortcut.Save()
-Write-OK "Will start automatically at login"
+# ── 4. Background Scheduled Task (hidden, runs at each logon as this user) ──────
+# A Scheduled Task beats a Startup shortcut: it's harder to disable by accident, can
+# restart on crash, and runs hidden. The exe is a WinExe so there's no window anyway —
+# the user never notices it. Admins debug with:  OneDriveAsADrive.exe --console
+Write-Step "Registering background task..."
+try {
+    # No --urls here: the exe reads the port from config.json, so an admin who later edits
+    # config.json's port gets honored without re-registering the task.
+    $action    = New-ScheduledTaskAction -Execute $ExePath
+    $trigger   = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERNAME"
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+    $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+                    -StartWhenAvailable -Hidden -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) `
+                    -ExecutionTimeLimit ([TimeSpan]::Zero)
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal `
+        -Settings $settings -Description "OneDriveAsADrive WebDAV bridge (background)" -Force | Out-Null
+    Write-OK "Task registered — starts hidden at every logon"
+} catch {
+    # Fall back to a plain Startup shortcut if task registration is blocked.
+    Write-Host "  [WARN] Scheduled Task failed ($_). Falling back to Startup shortcut." -ForegroundColor Yellow
+    $lnkPath  = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\$RepoName.lnk"
+    $shell    = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($lnkPath)
+    $shortcut.TargetPath  = $ExePath
+    $shortcut.Arguments   = ""
+    $shortcut.WindowStyle = 7
+    $shortcut.Description  = "OneDriveAsADrive WebDAV bridge"
+    $shortcut.Save()
+    Write-OK "Startup shortcut created"
+}
 
-# ── 5. Start the server ───────────────────────────────────────────────────────
+# ── 5. Start the server now (hidden) ──────────────────────────────────────────
 Write-Step "Starting OneDriveAsADrive..."
-$proc = Start-Process $ExePath -ArgumentList "--urls http://localhost:$Port" -WindowStyle Minimized -PassThru
+$proc = Start-Process $ExePath -WindowStyle Hidden -PassThru
 Start-Sleep -Seconds 4
-if ($proc.HasExited) { Write-Fail "Server exited unexpectedly. Check Event Viewer / run manually for errors." }
-Write-OK "Server running (PID $($proc.Id))"
+if ($proc.HasExited) { Write-Fail "Server exited unexpectedly. Run '$ExePath --console' to see why." }
+Write-OK "Server running in background (PID $($proc.Id))"
 
-# ── 6. Map the drive (with the per-install secret) ────────────────────────────
-# The server generates a random secret on first start and writes it here. Read it
-# and hand it to net use so Windows authenticates. No secret = no drive.
+# ── 6. Read the per-install secret ────────────────────────────────────────────
+# The server generates a random secret on first start and writes it here. No secret = no drive.
 $secretPath = "$InstallDir\.secret"
 $secret = $null
 for ($i = 0; $i -lt 10 -and -not $secret; $i++) {
     if (Test-Path $secretPath) { $secret = (Get-Content $secretPath -Raw).Trim() }
     if (-not $secret) { Start-Sleep -Milliseconds 500 }
 }
-if (-not $secret) { Write-Fail "Server never wrote its secret file ($secretPath). Check the server window for errors." }
+if (-not $secret) { Write-Fail "Server never wrote its secret file ($secretPath). Run '$ExePath --console'." }
 
-Write-Step "Mapping $DriveMap to http://localhost:$Port/..."
-if (Test-Path "$DriveMap\") { net use $DriveMap /delete /y | Out-Null }
-$result = net use $DriveMap "http://localhost:$Port/" /user:onedrive $secret /persistent:yes 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "  [WARN] net use failed: $result" -ForegroundColor Yellow
-    Write-Host "         Try manually: net use $DriveMap http://localhost:$Port/ /user:onedrive <secret>" -ForegroundColor DarkYellow
-    Write-Host "         (secret is in $secretPath)" -ForegroundColor DarkYellow
-} else {
-    Write-OK "Drive $DriveMap mapped"
+# ── 6b. Migration: clear stale v1.1-style mappings to the server ROOT ──────────
+# v1.1 mapped drives straight to http://localhost:PORT/ (no prefix). v1.2 serves files only
+# under /letter/ prefixes, so those old root mappings now 404 into a dead drive. Find and
+# delete any drive pointing at this server's root (shown as \\localhost@PORT\DavWWWRoot).
+try {
+    foreach ($line in (net use 2>$null)) {
+        if ($line -match "([A-Za-z]):\s+\\\\localhost@$Port\\DavWWWRoot\b") {
+            Write-Host "  [migrate] Removing stale root mapping $($matches[1]): (pre-v1.2)" -ForegroundColor DarkYellow
+            net use "$($matches[1]):" /delete /y | Out-Null
+        }
+    }
+} catch { }
+
+# ── 7. Map every configured drive ─────────────────────────────────────────────
+foreach ($m in $mounts) {
+    $letter = "$($m.letter)".ToUpper()
+    $drive  = "${letter}:"
+    $prefix = "$($m.letter)".ToLower()
+    $url    = "http://localhost:$Port/$prefix/"
+    $label  = if ($m.PSObject.Properties.Name -contains 'name' -and $m.name) { $m.name } else { $m.type }
+
+    Write-Step "Mapping $drive ($label) -> $url"
+    if (Test-Path "$drive\") { net use $drive /delete /y | Out-Null }
+    $result = net use $drive $url /user:onedrive $secret /persistent:yes 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  [WARN] net use failed for ${drive}: $result" -ForegroundColor Yellow
+        Write-Host "         Manual: net use $drive $url /user:onedrive <secret>  (secret in $secretPath)" -ForegroundColor DarkYellow
+    } else {
+        Write-OK "Drive $drive mapped"
+    }
 }
 
 Write-Host ""
-Write-Host "Done! Open File Explorer and look for drive $DriveMap" -ForegroundColor Green
+Write-Host "Done! Open File Explorer and look for your mapped drive(s)." -ForegroundColor Green
+Write-Host "Debug anytime with:  `"$ExePath`" --console" -ForegroundColor DarkGray
 Write-Host ""

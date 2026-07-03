@@ -1,0 +1,32 @@
+{
+  "name": "onedriveasadrive",
+  "version": "1.2.0",
+  "description": "Mount OneDrive and SharePoint document libraries as Windows drive letters. No-code installer/configurator for the OneDriveAsADrive WebDAV bridge.",
+  "bin": {
+    "onedriveasadrive": "bin/cli.js"
+  },
+  "scripts": {
+    "postinstall": "node -e \"process.platform!=='win32' && console.warn('onedriveasadrive only runs on Windows.')\""
+  },
+  "keywords": [
+    "onedrive",
+    "sharepoint",
+    "webdav",
+    "windows",
+    "drive",
+    "graph",
+    "mount"
+  ],
+  "os": [
+    "win32"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Avatorsinc/OneDriveAsADrive.git"
+  },
+  "homepage": "https://github.com/Avatorsinc/OneDriveAsADrive#readme",
+  "license": "MIT"
+}

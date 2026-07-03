@@ -4,6 +4,9 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- WinExe = no console window by default, so it runs invisibly in the background.
+         Pass the console flag to pop a window for debugging (see NativeConsole in Program.cs). -->
+    <OutputType>WinExe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>

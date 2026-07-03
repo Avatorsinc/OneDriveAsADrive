@@ -1,8 +1,10 @@
 # OneDriveAsADrive
 
-Mount your **OneDrive** — personal *or* work/school (OneDrive for Business) — as a real Windows drive letter (e.g. `Z:\`). No failed WebDAV connections, no app registration on your side.
+Mount your **OneDrive** — personal *or* work/school — **and SharePoint document libraries** as real Windows drive letters (e.g. `O:\`, `S:\`). One drive letter per library. No failed WebDAV connections, no app registration on your side. Deployable by IT to a whole fleet.
 
-> **Personal OneDrive works out of the box.** Work/school accounts work too, but locked-down corporate tenants may need a one-time admin consent — see [Accounts & Access](#accounts--access).
+> **Personal OneDrive works out of the box.** Work/school and SharePoint work too, but they use broader Graph permissions that locked-down tenants gate behind a one-time admin consent — see [Accounts & Access](#accounts--access).
+
+> ⚠️ **Upgrading from v1.1.x?** v1.2 changed the drive URLs: drives are now served under a per-letter prefix (`http://localhost:8080/z/`, not `/`). Your existing mapped drive will stop working the moment the new version starts. **Re-run the installer** — it detects and removes the stale mapping and remaps every drive under the new URLs.
 
 [![GitHub release](https://img.shields.io/github/v/release/Avatorsinc/OneDriveAsADrive)](https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -24,14 +26,16 @@ Mount your **OneDrive** — personal *or* work/school (OneDrive for Business) �
 Windows' built-in WebDAV client fails with modern Microsoft 365 accounts because those tenants require OAuth2 / modern auth — basic username/password WebDAV is dead. OneDriveAsADrive runs a **local** WebDAV server that speaks to Microsoft Graph API (which handles modern auth correctly) and lets Windows map it as a normal drive letter.
 
 ```
-File Explorer ──► Z:\ (WebDAV on localhost)
+File Explorer ──► O:\  S:\  T:\  (WebDAV on localhost, one prefix per drive)
                     │
               OneDriveAsADrive
                     │
               Microsoft Graph API
                     │
-           OneDrive (personal or work)
+     OneDrive  +  SharePoint document libraries
 ```
+
+Each mount is served under its own URL prefix — `http://localhost:8080/o/`, `/s/`, `/t/` — so a single background process backs every drive letter.
 
 ---
 
@@ -50,7 +54,10 @@ OneDriveAsADrive signs in through the **Microsoft Graph Command Line Tools** pub
 
 ![First-run access request](screenshots/accessrequest.png)
 
-It only ever asks for `Files.ReadWrite` (delegated) — read/write access to **your own** OneDrive. We deliberately avoid the broader `Files.ReadWrite.All` (which would cover all SharePoint/shared files and is far more likely to trip tenant restrictions).
+**Scopes depend on what you mount:**
+
+- **OneDrive only** → `Files.ReadWrite` (delegated) — read/write access to **your own** OneDrive. Narrow on purpose: personal accounts self-consent and it rarely trips tenant restrictions.
+- **Any SharePoint library** → the app widens to `Files.ReadWrite.All` + `Sites.Read.All`. These are what's required to reach document libraries you don't own, and they **usually need a one-time tenant admin consent**. There's no narrower scope that can read a shared SharePoint library — that's a Microsoft constraint, not a choice. The app only requests these when your config actually contains a SharePoint mount.
 
 ### Personal OneDrive — works out of the box
 
@@ -83,10 +90,12 @@ iwr https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest/download/inst
 ```
 
 The installer will:
-1. Download the latest release
+1. Download the latest release (and verify its SHA256)
 2. Configure the Windows WebClient service for local HTTP WebDAV
-3. Add a startup entry so the server runs automatically at login
-4. Start the server and map `Z:` to your OneDrive
+3. Register a hidden background Scheduled Task so the server runs at each logon
+4. Start the server and map every configured drive (just `Z:` → OneDrive if there's no `config.json`)
+
+To mount SharePoint or multiple libraries, drop a [`config.json`](#sharepoint--multiple-drives) in place first (or use `npx onedriveasadrive add …`).
 
 > **First run:** A Windows sign-in prompt may appear to select your work account. This happens once — after that it runs silently.
 
@@ -108,11 +117,96 @@ The installer will:
    .\OneDriveAsADrive.exe
    ```
    On startup it prints the exact `net use` command **including the auth secret** it generated. Copy that line.
-5. Map the drive (in a separate PowerShell window) using the secret from step 4:
+5. Map the drive (in a separate PowerShell window) using the secret from step 4. **Note the `/z/` path** — each drive lives under its own prefix (the lower-cased drive letter):
    ```powershell
-   net use Z: http://localhost:8080/ /user:onedrive <secret> /persistent:yes
+   net use Z: http://localhost:8080/z/ /user:onedrive <secret> /persistent:yes
    ```
-   > The server requires this per-install secret on **every** request (HTTP Basic auth), so a drive mapped without it gets a 401. The secret lives in `%LOCALAPPDATA%\OneDriveAsADrive\.secret`.
+   > The server requires this per-install secret on **every** request (HTTP Basic auth), so a drive mapped without it gets a 401. The secret lives in `%LOCALAPPDATA%\OneDriveAsADrive\.secret`. The exact `net use` line for every configured drive is printed on startup (run with `--console` to see it).
+
+---
+
+## SharePoint & Multiple Drives
+
+Mount as many OneDrive and SharePoint document libraries as you like — each gets its own drive letter. This is driven by a `config.json`:
+
+- **Machine-wide (all users):** `%ProgramData%\OneDriveAsADrive\config.json` — this is what IT deploys.
+- **Per-user:** `%LOCALAPPDATA%\OneDriveAsADrive\config.json`.
+
+Machine-wide wins if both exist. No config at all → a single OneDrive on `Z:` (out-of-the-box behaviour).
+
+```json
+{
+  "port": 8080,
+  "mounts": [
+    { "letter": "O", "type": "onedrive", "name": "My OneDrive" },
+    { "letter": "S", "type": "sharepoint",
+      "site": "contoso.sharepoint.com:/sites/Finance",
+      "library": "Documents", "name": "Finance" },
+    { "letter": "T", "type": "sharepoint",
+      "site": "contoso.sharepoint.com:/sites/Marketing", "name": "Marketing" }
+  ]
+}
+```
+
+| Field | Applies to | Notes |
+|-------|-----------|-------|
+| `letter` | all | Drive letter **and** URL prefix (`S` → served at `/s/`). Must be unique. |
+| `type` | all | `onedrive` or `sharepoint`. |
+| `site` | sharepoint | Site address: `host:/sites/Name` (from the SharePoint URL). |
+| `library` | sharepoint | Document library name. Omit for the site's **default** library. |
+| `name` | all | Friendly label (logs / debug listing). Cosmetic. |
+
+> **The `site` format:** a SharePoint URL like `https://contoso.sharepoint.com/sites/Finance/Shared%20Documents` maps to `site = "contoso.sharepoint.com:/sites/Finance"` and `library = "Documents"`. See [`config.example.json`](config.example.json).
+
+> ⚠️ Adding your first SharePoint mount widens the Graph permissions the app requests (see [Accounts & Access](#accounts--access)) — you may hit a one-time consent prompt. Restart the app after adding one so it re-authenticates with the new scopes.
+
+> **Moving files between drives:** each drive is a separate Graph drive, so dragging a file from `S:` to `O:` can't be a server-side move — Windows falls back to **copy-then-delete** (a full download + re-upload). Moves *within* a single drive are instant.
+
+---
+
+## IT Deployment (remote / no-code)
+
+For fleet rollout, push a `config.json` to `%ProgramData%\OneDriveAsADrive\config.json` via Intune, GPO, SCCM, or a login script, then run the installer. There's **no server** and **no app registration** — auth still rides each user's own Windows session (WAM), so it's per-user by design.
+
+**Deploy config + install in one step (admin):**
+
+```powershell
+iwr https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest/download/install.ps1 -UseBasicParsing -OutFile install.ps1
+.\install.ps1 -Config .\config.json
+```
+
+`install.ps1 -Config <file>` copies your config machine-wide, installs the exe, registers the **background Scheduled Task** (hidden, runs at each logon), and maps every configured drive.
+
+> **Consent at scale:** so users see *zero* prompts, have a Global Admin grant tenant-wide consent once (the `adminconsent` URL in [Accounts & Access](#accounts--access)). After that, the broader SharePoint scopes are pre-approved for everyone.
+
+### Install via npm (no-code wrapper)
+
+An `npx` wrapper wraps the whole flow for people who'd rather not touch PowerShell:
+
+```powershell
+npx onedriveasadrive install
+npx onedriveasadrive add --letter S --type sharepoint --site contoso.sharepoint.com:/sites/Finance --library Documents --name Finance
+npx onedriveasadrive add --letter O --type onedrive
+npx onedriveasadrive list
+npx onedriveasadrive status
+npx onedriveasadrive remove S
+npx onedriveasadrive uninstall
+```
+
+`add`/`remove` edit `config.json` and map/unmap the drive immediately. Add `--machine` to write the machine-wide config (needs admin). Windows only.
+
+---
+
+## Background & Debugging
+
+The app is a **windowless background process** — normal users never see it. It's launched by the Scheduled Task at logon (or immediately by the installer). Logs always go to `%LOCALAPPDATA%\OneDriveAsADrive\logs\app.log`.
+
+Admins/troubleshooters can run it with a **visible console** to watch it live (it prints the exact `net use` line for every drive, including the secret):
+
+```powershell
+& "$env:LOCALAPPDATA\OneDriveAsADrive\OneDriveAsADrive.exe" --console
+# or:  npx onedriveasadrive debug
+```
 
 ---
 
@@ -120,29 +214,35 @@ The installer will:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--urls` | `http://localhost:8080` | Change the listening port |
+| `--urls` | from `config.json` (`http://localhost:8080`) | Override the listening port |
+| `--console` / `--debug` | *(off)* | Pop a console window with live logs (background otherwise) |
 
-Example — use port 9090 and map as `W:`:
+Change the port for everything in `config.json` (`"port": 9090`), or override at launch:
 
 ```powershell
-.\OneDriveAsADrive.exe --urls http://localhost:9090
-net use W: http://localhost:9090/ /user:onedrive <secret> /persistent:yes
+.\OneDriveAsADrive.exe --urls http://localhost:9090 --console
 ```
 
 ---
 
 ## Uninstall
 
+Easiest: `npx onedriveasadrive uninstall`. Or manually:
+
 ```powershell
-# Remove drive mapping
+# Remove all mapped drives (repeat for each letter you configured, e.g. O S T)
 net use Z: /delete
 
-# Kill the server
+# Remove the background task and kill the server
+schtasks /Delete /TN OneDriveAsADrive /F
 Get-Process OneDriveAsADrive -ErrorAction SilentlyContinue | Stop-Process
 
-# Remove startup entry and files (this also deletes the .secret)
+# Remove the Startup shortcut (only exists if the task fell back to it) and files (deletes .secret + per-user config)
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\OneDriveAsADrive.lnk" -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:LOCALAPPDATA\OneDriveAsADrive" -Recurse -Force -ErrorAction SilentlyContinue
+
+# Machine-wide config, if IT deployed one (admin)
+Remove-Item "$env:ProgramData\OneDriveAsADrive" -Recurse -Force -ErrorAction SilentlyContinue
 
 # Revert the machine-wide WebDAV setting the installer changed (run as Administrator).
 # Default is 1 (HTTPS only). Skip if other WebDAV tools on this machine rely on it.
@@ -155,9 +255,9 @@ Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\WebClient\Parameters" 
 
 1. **Auth** — Uses [MSAL.NET](https://github.com/AzureAD/microsoft-authentication-library-for-dotnet) with the Windows Authentication Broker (WAM). WAM leverages your existing Windows work account session — the same account the OneDrive sync client is signed into — so no separate login or MFA is needed after the first consent.
 
-2. **WebDAV server** — An ASP.NET Core app handles `PROPFIND`, `GET`, `PUT`, `DELETE`, `MKCOL`, and `MOVE` requests from Windows File Explorer / `net use`.
+2. **WebDAV server** — A single windowless ASP.NET Core background process (registered as a Scheduled Task at logon) handles `PROPFIND`, `GET`, `PUT`, `DELETE`, `MKCOL`, and `MOVE`. Each configured drive is routed by URL prefix (`/o/`, `/s/`, …), so one process serves every drive letter.
 
-3. **Microsoft Graph** — All file operations go through the [Microsoft Graph API](https://learn.microsoft.com/en-us/graph/api/resources/onedrive) (`/me/drive`), which supports online-only files (Files On Demand) that the local sync folder doesn't show.
+3. **Microsoft Graph** — All file operations go through the [Microsoft Graph API](https://learn.microsoft.com/en-us/graph/api/resources/onedrive). A SharePoint document library is just another Graph `drive` (resolved from its site), so OneDrive (`/me/drive`) and SharePoint libraries use the exact same code path — including online-only files (Files On Demand) the local sync folder doesn't show.
 
 ---
 

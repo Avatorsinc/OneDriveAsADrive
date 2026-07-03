@@ -4,6 +4,7 @@ using System.Web;
 using System.Xml.Linq;
 using Microsoft.Graph.Models;
 using OneDriveAsADrive.Auth;
+using OneDriveAsADrive.Config;
 using OneDriveAsADrive.Graph;
 
 namespace OneDriveAsADrive.WebDav;
@@ -11,8 +12,18 @@ namespace OneDriveAsADrive.WebDav;
 // This middleware is the whole show. Windows asks for files, we translate that
 // into Graph API calls and lie to Windows about having a real drive.
 // Like Peter telling Lois he's on a diet. Technically not wrong.
+//
+// Multi-mount edition: each configured drive lives under its own URL prefix (/o, /s, ...).
+// The first path segment picks the drive; everything after it is the path WITHIN that drive.
+// One server, many drive letters. Quagmire juggling phone numbers.
 #pragma warning disable CS9113
-public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, ServerSecret secret, ILogger<WebDavMiddleware> log)
+public class WebDavMiddleware(
+    RequestDelegate next,
+    MountConfig config,
+    DriveResolver resolver,
+    OneDriveProvider drive,
+    ServerSecret secret,
+    ILogger<WebDavMiddleware> log)
 #pragma warning restore CS9113
 {
     // "DAV:" namespace. The holy namespace. Bow before it. ROADHOUSE.
@@ -44,24 +55,37 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
         }
 
         var method = ctx.Request.Method.ToUpperInvariant();
-        var path = HttpUtility.UrlDecode(ctx.Request.Path.Value ?? "/");
+        var fullPath = HttpUtility.UrlDecode(ctx.Request.Path.Value ?? "/");
 
-        log.LogDebug("{Method} {Path} — somebody's poking around", method, path);
+        log.LogDebug("{Method} {Path} — somebody's poking around", method, fullPath);
+
+        // Figure out which mounted drive this request is for. The synthetic root ("/") isn't
+        // a real drive — it's just a lobby that lists the drives (handy when an admin browses
+        // http://localhost:PORT/ to debug).
+        var (mount, relPath) = ResolveMount(fullPath);
 
         try
         {
+            if (mount == null)
+            {
+                await HandleRoot(ctx, method, fullPath);
+                return;
+            }
+
+            var driveId = await resolver.ResolveDriveIdAsync(mount);
+
             switch (method)
             {
                 case "OPTIONS":  await HandleOptions(ctx); break;
-                case "PROPFIND": await HandlePropfind(ctx, path); break;
-                case "PROPPATCH":await HandleProppatch(ctx, path); break;
+                case "PROPFIND": await HandlePropfind(ctx, driveId, fullPath, relPath); break;
+                case "PROPPATCH":await HandleProppatch(ctx, fullPath); break;
                 case "GET":
-                case "HEAD":     await HandleGet(ctx, path, method == "HEAD"); break;
-                case "PUT":      await HandlePut(ctx, path); break;
-                case "DELETE":   await HandleDelete(ctx, path); break;
-                case "MKCOL":    await HandleMkcol(ctx, path); break;
-                case "MOVE":     await HandleMove(ctx, path); break;
-                case "LOCK":     await HandleLock(ctx, path); break;
+                case "HEAD":     await HandleGet(ctx, driveId, relPath, method == "HEAD"); break;
+                case "PUT":      await HandlePut(ctx, driveId, relPath); break;
+                case "DELETE":   await HandleDelete(ctx, driveId, relPath); break;
+                case "MKCOL":    await HandleMkcol(ctx, driveId, relPath); break;
+                case "MOVE":     await HandleMove(ctx, driveId, mount, relPath); break;
+                case "LOCK":     await HandleLock(ctx, fullPath); break;
                 case "UNLOCK":   ctx.Response.StatusCode = 204; break;
                 default:
                     // "What the deuce is a REPORT request doing here?"
@@ -71,10 +95,69 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
         }
         catch (Exception ex)
         {
-            log.LogError(ex, "Holy crap — unhandled error on {Method} {Path}", method, path);
+            log.LogError(ex, "Holy crap — unhandled error on {Method} {Path}", method, fullPath);
             ctx.Response.StatusCode = 500;
         }
     }
+
+    // Split "/s/Documents/file.txt" into (mount for "s", "/Documents/file.txt").
+    // Returns (null, path) when nothing matches — that's the synthetic root.
+    private (Mount? mount, string relPath) ResolveMount(string fullPath)
+    {
+        var segments = fullPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0) return (null, "/");
+
+        var mount = config.Mounts.FirstOrDefault(m =>
+            m.Letter.Equals(segments[0], StringComparison.OrdinalIgnoreCase));
+        if (mount == null) return (null, fullPath);
+
+        var rel = "/" + string.Join("/", segments.Skip(1));
+        return (mount, rel);
+    }
+
+    // The synthetic root at "/". Not a drive — a directory of drives. Only PROPFIND/OPTIONS
+    // make sense here; anything trying to read/write "/" gets a polite 404. Windows never
+    // maps a drive to "/" itself, so real users won't hit this; it's an admin debug view.
+    private async Task HandleRoot(HttpContext ctx, string method, string fullPath)
+    {
+        // Only the bare root is special. "/nonsense" that matched no mount is just a 404.
+        var isBareRoot = fullPath.Trim('/').Length == 0;
+
+        if (method == "OPTIONS") { await HandleOptions(ctx); return; }
+
+        if (method == "PROPFIND" && isBareRoot)
+        {
+            var responses = new List<XElement>
+            {
+                // the root collection itself
+                CollectionResponse("/", "OneDriveAsADrive")
+            };
+            responses.AddRange(config.Mounts.Select(m =>
+                CollectionResponse(m.Prefix + "/", m.DisplayName)));
+
+            var multistatus = new XDocument(
+                new XElement(Dav + "multistatus",
+                    new XAttribute(XNamespace.Xmlns + "D", Dav),
+                    responses));
+
+            ctx.Response.StatusCode = 207;
+            ctx.Response.ContentType = "application/xml; charset=utf-8";
+            await ctx.Response.WriteAsync(multistatus.ToString(), Encoding.UTF8);
+            return;
+        }
+
+        ctx.Response.StatusCode = 404;
+    }
+
+    // A minimal <response> saying "this href is a folder." Used for the synthetic root listing.
+    private XElement CollectionResponse(string href, string name) =>
+        new(Dav + "response",
+            new XElement(Dav + "href", EncodePath(href)),
+            new XElement(Dav + "propstat",
+                new XElement(Dav + "prop",
+                    new XElement(Dav + "displayname", name),
+                    new XElement(Dav + "resourcetype", new XElement(Dav + "collection"))),
+                new XElement(Dav + "status", "HTTP/1.1 200 OK")));
 
     // localhost / 127.0.0.1 / ::1 only. Everything else can take a long walk off Quahog's pier.
     private static bool IsLoopbackHost(string host) =>
@@ -126,7 +209,7 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
     // PROPFIND — the most chatty WebDAV method. Windows asks about every single thing.
     // "Hey what's this? Hey what about this? Hey what's in here?"
     // Like Chris when he finds a new game.
-    private async Task HandlePropfind(HttpContext ctx, string path)
+    private async Task HandlePropfind(HttpContext ctx, string driveId, string fullPath, string relPath)
     {
         var depth = ctx.Request.Headers["Depth"].FirstOrDefault() ?? "1";
 
@@ -143,7 +226,7 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
             return;
         }
 
-        var item = await drive.GetItemAsync(path);
+        var item = await drive.GetItemAsync(driveId, relPath);
         if (item == null)
         {
             // "Meg, you're a 404." — Every Griffin, probably.
@@ -151,14 +234,14 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
             return;
         }
 
-        var responses = new List<XElement> { BuildResponse(path, item) };
+        var responses = new List<XElement> { BuildResponse(fullPath, item) };
 
         if (depth != "0" && item.Folder != null)
         {
-            var children = await drive.GetChildrenAsync(path);
+            var children = await drive.GetChildrenAsync(driveId, relPath);
             foreach (var child in children)
             {
-                var childPath = path.TrimEnd('/') + "/" + child.Name;
+                var childPath = fullPath.TrimEnd('/') + "/" + child.Name;
                 responses.Add(BuildResponse(childPath, child));
             }
         }
@@ -212,13 +295,13 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
     // PROPPATCH — clients try to SET properties (usually timestamps on copy/save).
     // Graph doesn't let us persist arbitrary WebDAV props, but if we 405 this, Explorer
     // and Office throw a fit mid-copy. So we nod politely and report success. Roadhouse.
-    private async Task HandleProppatch(HttpContext ctx, string path)
+    private async Task HandleProppatch(HttpContext ctx, string fullPath)
     {
         var multistatus = new XDocument(
             new XElement(Dav + "multistatus",
                 new XAttribute(XNamespace.Xmlns + "D", Dav),
                 new XElement(Dav + "response",
-                    new XElement(Dav + "href", EncodePath(path)),
+                    new XElement(Dav + "href", EncodePath(fullPath)),
                     new XElement(Dav + "propstat",
                         new XElement(Dav + "prop"),
                         new XElement(Dav + "status", "HTTP/1.1 200 OK")))));
@@ -231,7 +314,7 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
     // LOCK — we don't really lock anything (single user, single app), but Word/Excel
     // won't save unless they get a lock token back. So we hand out a fake one and
     // everybody's happy. It's like Peter's "World's Best Dad" mug. Purely ceremonial.
-    private async Task HandleLock(HttpContext ctx, string path)
+    private async Task HandleLock(HttpContext ctx, string fullPath)
     {
         var token = "opaquelocktoken:" + Guid.NewGuid();
 
@@ -255,9 +338,9 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
 
     // GET / HEAD — serve the file. Supports Range so media players and big-file reads
     // don't have to swallow the whole thing at once. Brian orders a la carte now.
-    private async Task HandleGet(HttpContext ctx, string path, bool headOnly)
+    private async Task HandleGet(HttpContext ctx, string driveId, string relPath, bool headOnly)
     {
-        var item = await drive.GetItemAsync(path);
+        var item = await drive.GetItemAsync(driveId, relPath);
         if (item == null) { ctx.Response.StatusCode = 404; return; }
         if (item.Folder != null) { ctx.Response.StatusCode = 400; return; }
 
@@ -277,7 +360,7 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
         // header. Upstream (a CDN) sets the real Content-Length / Content-Range / status,
         // so we relay those verbatim — no more guessing the length and hanging Explorer.
         var range = ctx.Request.Headers["Range"].FirstOrDefault();
-        using var upstream = await drive.DownloadAsync(path, range);
+        using var upstream = await drive.DownloadAsync(driveId, relPath, range);
 
         ctx.Response.StatusCode = (int)upstream.StatusCode;
         ctx.Response.Headers["Accept-Ranges"] = "bytes";
@@ -294,38 +377,48 @@ public class WebDavMiddleware(RequestDelegate next, OneDriveProvider drive, Serv
 
     // PUT — upload a file. 201 if it's brand new, 204 if we overwrote an existing one.
     // WebDAV cares about the difference even if Windows shrugs. Do it right.
-    private async Task HandlePut(HttpContext ctx, string path)
+    private async Task HandlePut(HttpContext ctx, string driveId, string relPath)
     {
-        var existed = await drive.GetItemAsync(path) != null;
-        await drive.UploadAsync(path, ctx.Request.Body, ctx.Request.ContentLength);
+        var existed = await drive.GetItemAsync(driveId, relPath) != null;
+        await drive.UploadAsync(driveId, relPath, ctx.Request.Body, ctx.Request.ContentLength);
         ctx.Response.StatusCode = existed ? 204 : 201;
     }
 
     // DELETE — ROADHOUSE.
-    private async Task HandleDelete(HttpContext ctx, string path)
+    private async Task HandleDelete(HttpContext ctx, string driveId, string relPath)
     {
-        await drive.DeleteAsync(path);
+        await drive.DeleteAsync(driveId, relPath);
         ctx.Response.StatusCode = 204;
     }
 
     // MKCOL — make a collection (folder). "Victory is mine! A new folder!"
-    private async Task HandleMkcol(HttpContext ctx, string path)
+    private async Task HandleMkcol(HttpContext ctx, string driveId, string relPath)
     {
-        await drive.CreateFolderAsync(path);
+        await drive.CreateFolderAsync(driveId, relPath);
         ctx.Response.StatusCode = 201;
     }
 
     // MOVE — rename or move. Windows sends the full destination URL in a header.
     // Because WebDAV designers said "why use the path when you can use an entire URL?" Guys, come on.
-    private async Task HandleMove(HttpContext ctx, string path)
+    private async Task HandleMove(HttpContext ctx, string driveId, Mount mount, string relPath)
     {
         var dest = ctx.Request.Headers["Destination"].FirstOrDefault();
         if (string.IsNullOrEmpty(dest)) { ctx.Response.StatusCode = 400; return; }
 
-        // Strip the "http://localhost:8080" prefix, keep just the path part
-        var destPath = HttpUtility.UrlDecode(new Uri(dest).AbsolutePath);
+        // Strip the "http://localhost:8080" prefix, keep just the path part.
+        var destFull = HttpUtility.UrlDecode(new Uri(dest).AbsolutePath);
+        var (destMount, destRel) = ResolveMount(destFull);
 
-        await drive.MoveAsync(path, destPath);
+        // Cross-drive moves (dragging from S: to O:) can't be a single Graph PATCH — those
+        // live on different drives entirely. Tell the client we can't, rather than corrupting.
+        // 502 Bad Gateway is WebDAV's "the destination is on a different server" answer.
+        if (destMount == null || !destMount.Letter.Equals(mount.Letter, StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Response.StatusCode = 502;
+            return;
+        }
+
+        await drive.MoveAsync(driveId, relPath, destRel);
         ctx.Response.StatusCode = 201;
     }
 

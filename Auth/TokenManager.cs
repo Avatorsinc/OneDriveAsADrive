@@ -1,6 +1,7 @@
 using Microsoft.Identity.Client;
 using Microsoft.Identity.Client.Broker;
 using System.Runtime.InteropServices;
+using OneDriveAsADrive.Config;
 
 namespace OneDriveAsADrive.Auth;
 
@@ -12,11 +13,18 @@ public class TokenManager
     // Microsoft Graph Command Line Tools client ID — Microsoft's own public app.
     // No app registration needed. Like finding a parking spot right at the front.
     private const string ClientId = "14d82eec-204b-4c2f-b7e8-296a70dab67e";
-    // Files.ReadWrite = your OWN OneDrive only. We deliberately DON'T ask for
-    // Files.ReadWrite.All (all files incl. SharePoint) — that broad scope trips
-    // tenant admin-consent walls. Peter doesn't need the keys to the whole studio,
-    // just his own dressing room.
-    private static readonly string[] Scopes = ["Files.ReadWrite", "offline_access"];
+
+    // Scopes are chosen at runtime based on what's mounted:
+    //
+    //  • OneDrive only  → Files.ReadWrite = your OWN OneDrive. Narrow on purpose: it does
+    //    NOT trip tenant admin-consent walls, so personal accounts just work.
+    //
+    //  • Any SharePoint → we MUST widen to Files.ReadWrite.All (read/write files in the
+    //    libraries you can reach) + Sites.Read.All (to discover the site's drives). These
+    //    broad scopes usually require a ONE-TIME tenant admin consent. That's the price of
+    //    SharePoint; there's no narrow scope that reaches other people's shared libraries.
+    //    Peter can't raid the studio fridge without a studio badge.
+    private readonly string[] _scopes;
 
     private readonly IPublicClientApplication _app;
     private readonly ILogger<TokenManager> _log;
@@ -25,9 +33,18 @@ public class TokenManager
     [DllImport("kernel32.dll")]
     private static extern IntPtr GetConsoleWindow();
 
-    public TokenManager(ILogger<TokenManager> log)
+    public TokenManager(ILogger<TokenManager> log, MountConfig config)
     {
         _log = log;
+
+        _scopes = config.AnySharePoint
+            ? ["Files.ReadWrite.All", "Sites.Read.All", "offline_access"]
+            : ["Files.ReadWrite", "offline_access"];
+
+        if (config.AnySharePoint)
+            _log.LogInformation(
+                "SharePoint mounts detected — requesting broader Graph scopes (Files.ReadWrite.All, Sites.Read.All). " +
+                "A one-time tenant admin consent may be required.");
 
         // Build the MSAL app with Windows WAM broker.
         // WAM is like Joe Swanson — it handles things the right way so you don't have to.
@@ -50,7 +67,7 @@ public class TokenManager
 
         try
         {
-            var silent = await _app.AcquireTokenSilent(Scopes, accounts.FirstOrDefault())
+            var silent = await _app.AcquireTokenSilent(_scopes, accounts.FirstOrDefault())
                 .ExecuteAsync();
 
             // Giggity. Token acquired without anyone knowing.
@@ -64,7 +81,7 @@ public class TokenManager
 
         // Interactive WAM — Windows will use the already-signed-in work account.
         // Should be a quick popup at worst. NOT a full MFA rodeo. Victory is mine!
-        var result = await _app.AcquireTokenInteractive(Scopes)
+        var result = await _app.AcquireTokenInteractive(_scopes)
             .WithParentActivityOrWindow(GetConsoleWindow())
             .ExecuteAsync();
 

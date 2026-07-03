@@ -1,6 +1,7 @@
-bin/
-obj/
-publish/
+# Anchored to the repo root so the .NET build output is ignored but npm/bin/ (the CLI) is not.
+/bin/
+/obj/
+/publish/
 *.user
 .vs/
 .idea/

@@ -1,0 +1,24 @@
+{
+  "// help": "Deploy this as config.json to %ProgramData%\\OneDriveAsADrive\\ (machine-wide, IT) or %LOCALAPPDATA%\\OneDriveAsADrive\\ (per-user). 'port' is the local WebDAV port. Each mount becomes a drive letter.",
+  "port": 8080,
+  "mounts": [
+    {
+      "letter": "O",
+      "type": "onedrive",
+      "name": "My OneDrive"
+    },
+    {
+      "letter": "S",
+      "type": "sharepoint",
+      "site": "contoso.sharepoint.com:/sites/Finance",
+      "library": "Documents",
+      "name": "Finance"
+    },
+    {
+      "letter": "T",
+      "type": "sharepoint",
+      "site": "contoso.sharepoint.com:/sites/Marketing",
+      "name": "Marketing (default library)"
+    }
+  ]
+}

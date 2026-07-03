@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Caching.Memory;
@@ -11,6 +12,10 @@ namespace OneDriveAsADrive.Graph;
 
 // This whole class is basically Peter trying to find where he put his files.
 // Except it actually works. Unlike Peter.
+//
+// It's drive-agnostic now: every method takes a driveId, so the SAME instance serves your
+// personal OneDrive AND every SharePoint library at once. To Graph, a SharePoint document
+// library is just another "drive" — so all the same calls work. Freakin' sweet.
 //
 // Performance note: Windows Explorer is CLINGY. It re-asks for the same folders
 // and probes the same phantom files (Desktop.ini, thumbs.db) over and over like
@@ -32,9 +37,8 @@ public class OneDriveProvider
     private readonly GraphServiceClient _client;
     private readonly IMemoryCache _cache;
 
-    private string? _driveId;
-    private string? _rootId;
-    private readonly SemaphoreSlim _initLock = new(1, 1);
+    // Root item IDs, cached per drive. Kills a redundant round trip on root children.
+    private readonly ConcurrentDictionary<string, string> _rootIds = new();
 
     // How long we trust cached data. Short enough that changes show up quickly,
     // long enough that Explorer's rapid-fire probing hits cache instead of Redmond.
@@ -50,41 +54,19 @@ public class OneDriveProvider
         _cache = cache;
     }
 
-    // Lazy-loads the drive ID on first use.
-    // Like Brian's novel — referenced constantly but only materializes when forced.
-    private async Task<string> GetDriveIdAsync()
-    {
-        if (_driveId != null) return _driveId;
-        await _initLock.WaitAsync();
-        try
-        {
-            if (_driveId == null)
-            {
-                var drive = await _client.Me.Drive.GetAsync();
-                _driveId = drive?.Id ?? throw new InvalidOperationException(
-                    // Holy crap, we couldn't get the drive ID.
-                    // That's worse than the time Peter couldn't find the remote.
-                    "Could not retrieve OneDrive ID from Microsoft Graph");
-            }
-            return _driveId;
-        }
-        finally { _initLock.Release(); }
-    }
-
     // Get metadata for a path — AND, if it's a folder, grab its (first page of) children
     // in the SAME network call via $expand=children. One round trip instead of two.
     //
     // Results are cached. 404s return null (and are cached) instead of throwing —
     // Windows probes for phantom files constantly and we're not gonna cry every time.
-    public async Task<DriveItem?> GetItemAsync(string davPath)
+    public async Task<DriveItem?> GetItemAsync(string driveId, string davPath)
     {
         var path = ToGraphPath(davPath);
-        var key = ItemKey(path);
+        var key = ItemKey(driveId, path);
 
         if (_cache.TryGetValue(key, out DriveItem? cached))
             return cached; // could be a cached null (negative hit) — that's fine
 
-        var driveId = await GetDriveIdAsync();
         DriveItem? item;
         try
         {
@@ -109,7 +91,7 @@ public class OneDriveProvider
         if (item?.Folder != null && item.Children != null &&
             item.AdditionalData?.ContainsKey("children@odata.nextLink") != true)
         {
-            _cache.Set(ChildrenKey(path), item.Children, PositiveTtl);
+            _cache.Set(ChildrenKey(driveId, path), item.Children, PositiveTtl);
         }
 
         return item;
@@ -118,20 +100,19 @@ public class OneDriveProvider
     // List folder contents — ALL of them. Follows @odata.nextLink so folders with
     // hundreds/thousands of items don't get silently chopped at the first page.
     // (Usually a cache hit anyway thanks to the expand seed above.)
-    public async Task<List<DriveItem>> GetChildrenAsync(string davPath)
+    public async Task<List<DriveItem>> GetChildrenAsync(string driveId, string davPath)
     {
         var path = ToGraphPath(davPath);
-        var key = ChildrenKey(path);
+        var key = ChildrenKey(driveId, path);
 
         if (_cache.TryGetValue(key, out List<DriveItem>? cachedList) && cachedList != null)
             return cachedList;
 
-        var driveId = await GetDriveIdAsync();
         DriveItemCollectionResponse? firstPage;
         try
         {
             firstPage = string.IsNullOrEmpty(path)
-                ? await _client.Drives[driveId].Items[await GetRootIdAsync()].Children.GetAsync()
+                ? await _client.Drives[driveId].Items[await GetRootIdAsync(driveId)].Children.GetAsync()
                 : await _client.Drives[driveId].Root.ItemWithPath(path).Children.GetAsync();
         }
         catch (ODataError e) when (e.ResponseStatusCode == 404)
@@ -152,23 +133,23 @@ public class OneDriveProvider
         return all;
     }
 
-    // Root's item ID, cached. Kills a redundant round trip on root children.
-    private async Task<string> GetRootIdAsync()
+    // Root's item ID for a given drive, cached. Kills a redundant round trip on root children.
+    private async Task<string> GetRootIdAsync(string driveId)
     {
-        if (_rootId != null) return _rootId;
-        var driveId = await GetDriveIdAsync();
+        if (_rootIds.TryGetValue(driveId, out var id)) return id;
         var root = await _client.Drives[driveId].Root.GetAsync();
-        _rootId = root?.Id ?? throw new InvalidOperationException("No root ID. The deuce?");
-        return _rootId;
+        id = root?.Id ?? throw new InvalidOperationException("No root ID. The deuce?");
+        _rootIds[driveId] = id;
+        return id;
     }
 
     // Stream a file's bytes, honoring an optional HTTP Range header. Uses OneDrive's
     // pre-authenticated @microsoft.graph.downloadUrl, which lives on a CDN that speaks
     // Range natively — so seeking a 2GB video doesn't download the first 1.9GB first.
     // Returns the raw upstream response so the middleware can relay status + headers.
-    public async Task<HttpResponseMessage> DownloadAsync(string davPath, string? rangeHeader)
+    public async Task<HttpResponseMessage> DownloadAsync(string driveId, string davPath, string? rangeHeader)
     {
-        var item = await GetItemAsync(davPath);
+        var item = await GetItemAsync(driveId, davPath);
         if (item == null)
             return new HttpResponseMessage(HttpStatusCode.NotFound);
 
@@ -191,15 +172,14 @@ public class OneDriveProvider
 
     // Upload a file. Small ones go up in a single PUT; big ones (>4MB) go through a
     // chunked upload session, because Peter can't fit through the door all at once either.
-    public async Task UploadAsync(string davPath, Stream content, long? contentLength)
+    public async Task UploadAsync(string driveId, string davPath, Stream content, long? contentLength)
     {
-        var driveId = await GetDriveIdAsync();
         var path = ToGraphPath(davPath);
 
         if (contentLength is > 0 and <= SimpleUploadLimit)
         {
             await _client.Drives[driveId].Root.ItemWithPath(path).Content.PutAsync(content);
-            Invalidate(path);
+            Invalidate(driveId, path);
             return;
         }
 
@@ -226,7 +206,7 @@ public class OneDriveProvider
         if (total == 0)
         {
             await _client.Drives[driveId].Root.ItemWithPath(path).Content.PutAsync(Stream.Null);
-            Invalidate(path);
+            Invalidate(driveId, path);
             buffered?.Dispose();
             return;
         }
@@ -240,7 +220,7 @@ public class OneDriveProvider
             buffered?.Dispose();
         }
 
-        Invalidate(path);
+        Invalidate(driveId, path);
     }
 
     // The chunked-upload workhorse. Creates a session, then PUTs 5 MiB slices with
@@ -306,18 +286,16 @@ public class OneDriveProvider
     }
 
     // Delete. Permanent. Gone. Like Meg's self-esteem.
-    public async Task DeleteAsync(string davPath)
+    public async Task DeleteAsync(string driveId, string davPath)
     {
-        var driveId = await GetDriveIdAsync();
         var path = ToGraphPath(davPath);
         await _client.Drives[driveId].Root.ItemWithPath(path).DeleteAsync();
-        Invalidate(path);
+        Invalidate(driveId, path);
     }
 
     // Create a folder. "Victory is mine! A new folder has been born!"
-    public async Task CreateFolderAsync(string davPath)
+    public async Task CreateFolderAsync(string driveId, string davPath)
     {
-        var driveId = await GetDriveIdAsync();
         var path = ToGraphPath(davPath);
         var parentPath = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "";
         var folderName = Path.GetFileName(path);
@@ -331,18 +309,17 @@ public class OneDriveProvider
         };
 
         if (string.IsNullOrEmpty(parentPath))
-            await _client.Drives[driveId].Items[await GetRootIdAsync()].Children.PostAsync(newFolder);
+            await _client.Drives[driveId].Items[await GetRootIdAsync(driveId)].Children.PostAsync(newFolder);
         else
             await _client.Drives[driveId].Root.ItemWithPath(parentPath).Children.PostAsync(newFolder);
 
-        Invalidate(path);
+        Invalidate(driveId, path);
     }
 
     // Move or rename an item. PATCH with a new parent/name.
     // "Now I know how the mailman feels every Tuesday." — Peter, probably.
-    public async Task MoveAsync(string davSource, string davDest)
+    public async Task MoveAsync(string driveId, string davSource, string davDest)
     {
-        var driveId = await GetDriveIdAsync();
         var srcPath = ToGraphPath(davSource);
         var destPath = ToGraphPath(davDest);
         var destParent = Path.GetDirectoryName(destPath)?.Replace('\\', '/') ?? "";
@@ -360,25 +337,26 @@ public class OneDriveProvider
         };
 
         await _client.Drives[driveId].Root.ItemWithPath(srcPath).PatchAsync(patch);
-        Invalidate(srcPath);  // it left here
-        Invalidate(destPath); // ...and landed there
+        Invalidate(driveId, srcPath);  // it left here
+        Invalidate(driveId, destPath); // ...and landed there
     }
 
     // Nuke cached entries for a path and its parent folder listing, so writes show
     // up immediately instead of after the TTL. Cache invalidation: one of the two
     // hard problems in computer science. The other is Meg.
-    private void Invalidate(string path)
+    private void Invalidate(string driveId, string path)
     {
-        _cache.Remove(ItemKey(path));
-        _cache.Remove(ChildrenKey(path));
+        _cache.Remove(ItemKey(driveId, path));
+        _cache.Remove(ChildrenKey(driveId, path));
 
         var parent = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "";
-        _cache.Remove(ItemKey(parent));
-        _cache.Remove(ChildrenKey(parent));
+        _cache.Remove(ItemKey(driveId, parent));
+        _cache.Remove(ChildrenKey(driveId, parent));
     }
 
-    private static string ItemKey(string path) => "item:" + path;
-    private static string ChildrenKey(string path) => "children:" + path;
+    // Cache keys are namespaced per drive so two mounts never collide on the same path.
+    private static string ItemKey(string driveId, string path) => $"item:{driveId}:{path}";
+    private static string ChildrenKey(string driveId, string path) => $"children:{driveId}:{path}";
 
     // "/Documents/file.txt" → "Documents/file.txt" — Graph doesn't want the leading slash.
     // Deucedly inconsistent API design, but here we are.
