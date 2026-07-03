@@ -26,6 +26,10 @@ public class TokenManager
     //    Peter can't raid the studio fridge without a studio badge.
     private readonly string[] _scopes;
 
+    // Optional account (UPN/email) to pin which identity we sign in as, when the machine has
+    // more than one. Null = take the default/first account.
+    private readonly string? _account;
+
     private readonly IPublicClientApplication _app;
     private readonly ILogger<TokenManager> _log;
 
@@ -48,6 +52,7 @@ public class TokenManager
     public TokenManager(ILogger<TokenManager> log, MountConfig config)
     {
         _log = log;
+        _account = string.IsNullOrWhiteSpace(config.Account) ? null : config.Account.Trim();
 
         _scopes = config.AnySharePoint
             ? ["Files.ReadWrite.All", "Sites.Read.All", "offline_access"]
@@ -75,11 +80,18 @@ public class TokenManager
     public async Task<string> GetAccessTokenAsync()
     {
         // First try silent — like when Stewie does something terrible and nobody notices.
+        // If an account is pinned in config, pick THAT one; otherwise the first cached account.
         var accounts = await _app.GetAccountsAsync();
+        var account = _account != null
+            ? accounts.FirstOrDefault(a => string.Equals(a.Username, _account, StringComparison.OrdinalIgnoreCase))
+            : accounts.FirstOrDefault();
+
+        if (_account != null && account == null)
+            _log.LogInformation("Pinned account '{Account}' not cached yet — will prompt for it.", _account);
 
         try
         {
-            var silent = await _app.AcquireTokenSilent(_scopes, accounts.FirstOrDefault())
+            var silent = await _app.AcquireTokenSilent(_scopes, account)
                 .ExecuteAsync();
 
             // Giggity. Token acquired without anyone knowing.
@@ -93,10 +105,17 @@ public class TokenManager
 
         // Interactive WAM — Windows will use the already-signed-in work account.
         // Should be a quick popup at worst. NOT a full MFA rodeo. Victory is mine!
-        var result = await _app.AcquireTokenInteractive(_scopes)
-            .WithParentActivityOrWindow(ParentWindow())
-            .ExecuteAsync();
+        // A machine can have several signed-in identities (e.g. a personal @outlook/@gmail
+        // account AND a work @tenant.onmicrosoft.com account), and only ONE can reach a given
+        // tenant's SharePoint. If config pins an account, sign straight into it; otherwise show
+        // the picker so the user chooses instead of us grabbing whichever was cached first.
+        var interactive = _app.AcquireTokenInteractive(_scopes)
+            .WithParentActivityOrWindow(ParentWindow());
+        interactive = _account != null
+            ? interactive.WithLoginHint(_account)
+            : interactive.WithPrompt(Prompt.SelectAccount);
 
+        var result = await interactive.ExecuteAsync();
         return result.AccessToken;
     }
 }

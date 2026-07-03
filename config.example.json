@@ -1,6 +1,8 @@
 {
   "// help": "Deploy this as config.json to %ProgramData%\\OneDriveAsADrive\\ (machine-wide, IT) or %LOCALAPPDATA%\\OneDriveAsADrive\\ (per-user). 'port' is the local WebDAV port. Each mount becomes a drive letter.",
+  "// account": "Optional. UPN/email to sign in as, e.g. you@contoso.com. Pins the identity on a machine with several signed-in Microsoft accounts. Remove this line to use the default account.",
   "port": 8080,
+  "account": "you@contoso.com",
   "mounts": [
     {
       "letter": "O",

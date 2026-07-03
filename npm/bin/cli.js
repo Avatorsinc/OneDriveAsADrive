@@ -89,18 +89,29 @@ function readSecret() {
 function run(cmd, args, opts = {}) {
   return spawnSync(cmd, args, { stdio: 'inherit', ...opts });
 }
-function netUseMap(letter, port, secret) {
+// Explorer shows WebDAV drives as the raw "\\localhost@8080\s" path unless we set a friendly
+// label. The MountPoints2 key for \\localhost@PORT\x is ##localhost@PORT#x; _LabelFromReg is
+// what Explorer displays, so "S: (Finance)" instead of "S: (\\localhost@8080)".
+function mountPointKey(letter, port) {
+  return `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2\\##localhost@${port}#${letter.toLowerCase()}`;
+}
+function setDriveLabel(letter, port, label) {
+  if (!label) return;
+  spawnSync('reg', ['add', mountPointKey(letter, port), '/v', '_LabelFromReg', '/t', 'REG_SZ', '/d', label, '/f'], { stdio: 'ignore' });
+}
+function netUseMap(letter, port, secret, label) {
   const drive = `${letter.toUpperCase()}:`;
   const url = `http://localhost:${port}/${letter.toLowerCase()}/`;
   spawnSync('net', ['use', drive, '/delete', '/y'], { stdio: 'ignore' });
   const r = spawnSync('net', ['use', drive, url, `/user:onedrive`, secret, '/persistent:yes'],
     { encoding: 'utf8' });
   if (r.status !== 0) warn(`net use ${drive} failed: ${(r.stderr || r.stdout || '').trim()}`);
-  else ok(`Mapped ${drive} -> ${url}`);
+  else { setDriveLabel(letter, port, label); ok(`Mapped ${drive} -> ${url}${label ? ` ("${label}")` : ''}`); }
 }
-function netUseDelete(letter) {
+function netUseDelete(letter, port) {
   const drive = `${letter.toUpperCase()}:`;
   spawnSync('net', ['use', drive, '/delete', '/y'], { stdio: 'ignore' });
+  if (port) spawnSync('reg', ['delete', mountPointKey(letter, port), '/f'], { stdio: 'ignore' });
   ok(`Unmapped ${drive}`);
 }
 
@@ -192,7 +203,7 @@ function cmdAdd(flags) {
   if (type === 'sharepoint')
     warn('First SharePoint mount widens Graph scopes — a one-time consent prompt may appear. ' +
          'If the drive looks empty, run: onedriveasadrive debug');
-  netUseMap(letter, cfg.port, secret);
+  netUseMap(letter, cfg.port, secret, mount.name);
 }
 
 function cmdRemove(pos, flags) {
@@ -205,7 +216,7 @@ function cmdRemove(pos, flags) {
   cfg.mounts = (cfg.mounts || []).filter((m) => (m.letter || '').toLowerCase() !== letter.toLowerCase());
   if (cfg.mounts.length === before) warn(`No mount ${letter}: in ${p}`);
   else { writeConfig(p, cfg); ok(`Removed ${letter.toUpperCase()}: from ${p}`); }
-  netUseDelete(letter);
+  netUseDelete(letter, cfg.port);
 }
 
 function cmdList() {
@@ -248,7 +259,7 @@ function cmdDebug() {
 function cmdUninstall() {
   requireWindows();
   const { cfg } = effectiveConfig();
-  for (const m of cfg.mounts || []) netUseDelete(m.letter);
+  for (const m of cfg.mounts || []) netUseDelete(m.letter, cfg.port);
   spawnSync('schtasks', ['/Delete', '/TN', APPNAME, '/F'], { stdio: 'ignore' });
   spawnSync('taskkill', ['/IM', `${APPNAME}.exe`, '/F'], { stdio: 'ignore' });
   try { fs.rmSync(path.join(process.env.APPDATA || '', 'Microsoft\\Windows\\Start Menu\\Programs\\Startup', `${APPNAME}.lnk`), { force: true }); } catch {}

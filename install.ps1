@@ -224,6 +224,14 @@ foreach ($m in $mounts) {
         Write-Host "         Manual: net use $drive $url /user:onedrive <secret>  (secret in $secretPath)" -ForegroundColor DarkYellow
     } else {
         Write-OK "Drive $drive mapped"
+        # Friendly Explorer label: without this the drive shows as "\\localhost@8080\s".
+        # MountPoints2 key for \\localhost@PORT\x is ##localhost@PORT#x; _LabelFromReg is
+        # what Explorer displays, so you get "S: (Finance)" instead of the raw path.
+        try {
+            $mpKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2\##localhost@$Port#$prefix"
+            if (-not (Test-Path $mpKey)) { New-Item -Path $mpKey -Force | Out-Null }
+            New-ItemProperty -Path $mpKey -Name '_LabelFromReg' -Value $label -PropertyType String -Force | Out-Null
+        } catch { }
     }
 }
 

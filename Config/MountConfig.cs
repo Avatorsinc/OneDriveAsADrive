@@ -42,6 +42,12 @@ public sealed class MountConfig
     public int Port { get; set; } = 8080;
     public List<Mount> Mounts { get; set; } = [];
 
+    // Optional: the account (UPN / email) to sign in as, e.g. "you@contoso.com". On a machine
+    // with several signed-in Microsoft accounts, this pins which identity every mount uses —
+    // otherwise we take whichever the broker cached first, which may be the wrong one. Leave
+    // null to accept the default account.
+    public string? Account { get; set; }
+
     // Where the config was loaded from (or null if we fell back to defaults). For logging.
     [JsonIgnore]
     public string? SourcePath { get; set; }

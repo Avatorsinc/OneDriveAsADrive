@@ -67,20 +67,41 @@ public class OneDriveProvider
         if (_cache.TryGetValue(key, out DriveItem? cached))
             return cached; // could be a cached null (negative hit) — that's fine
 
+        // $expand=children is ONLY legal on folders. On a file, Graph 400s with "Children
+        // cannot be listed from an item that is not a folder". We don't know which it is until
+        // we ask, so: try with the expand (one round trip for the folder case), and if it 400s
+        // because it's a file, retry the same GET without the expand. Files are the common case
+        // for reads/writes, so this correctness fix is essential — not just an optimization.
+        async Task<DriveItem?> Fetch(bool expand) =>
+            string.IsNullOrEmpty(path)
+                ? await _client.Drives[driveId].Root.GetAsync(rc =>
+                    { if (expand) rc.QueryParameters.Expand = ["children"]; })
+                : await _client.Drives[driveId].Root.ItemWithPath(path).GetAsync(rc =>
+                    { if (expand) rc.QueryParameters.Expand = ["children"]; });
+
         DriveItem? item;
         try
         {
-            item = string.IsNullOrEmpty(path)
-                ? await _client.Drives[driveId].Root.GetAsync(rc =>
-                    rc.QueryParameters.Expand = ["children"])
-                : await _client.Drives[driveId].Root.ItemWithPath(path).GetAsync(rc =>
-                    rc.QueryParameters.Expand = ["children"]);
+            item = await Fetch(expand: true);
         }
         catch (ODataError e) when (e.ResponseStatusCode == 404)
         {
             // File doesn't exist. That's not an error, that's just Tuesday.
             _cache.Set(key, (DriveItem?)null, NegativeTtl);
             return null;
+        }
+        catch (ODataError e) when (e.ResponseStatusCode == 400)
+        {
+            // Almost certainly the "expand children on a non-folder" 400 — retry plain.
+            try
+            {
+                item = await Fetch(expand: false);
+            }
+            catch (ODataError inner) when (inner.ResponseStatusCode == 404)
+            {
+                _cache.Set(key, (DriveItem?)null, NegativeTtl);
+                return null;
+            }
         }
 
         _cache.Set(key, item, PositiveTtl);

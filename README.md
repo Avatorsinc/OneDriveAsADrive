@@ -134,9 +134,12 @@ Mount as many OneDrive and SharePoint document libraries as you like — each ge
 
 Machine-wide wins if both exist. No config at all → a single OneDrive on `Z:` (out-of-the-box behaviour).
 
+> **One identity per instance.** Every mount in a running instance signs in as the **same** Microsoft account. A work/school account can serve its own OneDrive **and** every SharePoint site it's allowed to reach — all at once. What you *can't* do is mix a **personal** OneDrive (e.g. `you@outlook.com`) with a **work** SharePoint (`you@tenant.onmicrosoft.com`) in one instance: those are two separate identities and no single token spans both. Sign in with the one account that can reach everything you want mounted.
+
 ```json
 {
   "port": 8080,
+  "account": "you@contoso.com",
   "mounts": [
     { "letter": "O", "type": "onedrive", "name": "My OneDrive" },
     { "letter": "S", "type": "sharepoint",
@@ -150,17 +153,25 @@ Machine-wide wins if both exist. No config at all → a single OneDrive on `Z:` 
 
 | Field | Applies to | Notes |
 |-------|-----------|-------|
+| `port` | top-level | Local port the bridge listens on (default `8080`). |
+| `account` | top-level *(optional)* | UPN/email to sign in as, e.g. `you@contoso.com`. Pins the identity on a machine with **several** signed-in Microsoft accounts. Omit to use the default account. |
 | `letter` | all | Drive letter **and** URL prefix (`S` → served at `/s/`). Must be unique. |
 | `type` | all | `onedrive` or `sharepoint`. |
 | `site` | sharepoint | Site address: `host:/sites/Name` (from the SharePoint URL). |
 | `library` | sharepoint | Document library name. Omit for the site's **default** library. |
-| `name` | all | Friendly label (logs / debug listing). Cosmetic. |
+| `name` | all | Friendly label — shown as the **drive's name in File Explorer** (e.g. `S: (Finance)`) and in logs. |
 
 > **The `site` format:** a SharePoint URL like `https://contoso.sharepoint.com/sites/Finance/Shared%20Documents` maps to `site = "contoso.sharepoint.com:/sites/Finance"` and `library = "Documents"`. See [`config.example.json`](config.example.json).
 
 > ⚠️ Adding your first SharePoint mount widens the Graph permissions the app requests (see [Accounts & Access](#accounts--access)) — you may hit a one-time consent prompt. Restart the app after adding one so it re-authenticates with the new scopes.
 
 > **Moving files between drives:** each drive is a separate Graph drive, so dragging a file from `S:` to `O:` can't be a server-side move — Windows falls back to **copy-then-delete** (a full download + re-upload). Moves *within* a single drive are instant.
+
+### Proof: one file, two views
+
+![A SharePoint document library mounted as a Windows drive — the same file appears both in File Explorer and in SharePoint online](screenshots/sharepoint.png)
+
+A file written to the mapped drive lands in the SharePoint library instantly — identical bytes whether you open it from the drive letter in File Explorer or from SharePoint in the browser. It's not a copy or a sync folder; the drive *is* the library.
 
 ---
 
