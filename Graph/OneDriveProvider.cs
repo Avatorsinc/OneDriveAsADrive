@@ -67,11 +67,18 @@ public class OneDriveProvider
         if (_cache.TryGetValue(key, out DriveItem? cached))
             return cached; // could be a cached null (negative hit) — that's fine
 
-        // $expand=children is ONLY legal on folders. On a file, Graph 400s with "Children
+        // $expand=children is ONLY legal on folders. On a file, Graph blows up with "Children
         // cannot be listed from an item that is not a folder". We don't know which it is until
-        // we ask, so: try with the expand (one round trip for the folder case), and if it 400s
-        // because it's a file, retry the same GET without the expand. Files are the common case
-        // for reads/writes, so this correctness fix is essential — not just an optimization.
+        // we ask, so: try with the expand (one round trip for the folder case), and if that
+        // fails, retry the same GET WITHOUT the expand — a real folder still comes back fine,
+        // we just don't get its children pre-seeded. Files are the common case for reads/writes,
+        // so this correctness fix is essential — not just an optimization.
+        //
+        // NOTE: we deliberately DON'T key off the HTTP status here. That "not a folder" error
+        // does NOT reliably surface as ResponseStatusCode == 400 (it came through as an
+        // unhandled ODataError in the wild), so we catch the expand failure broadly and let the
+        // plain retry sort out real-vs-phantom via its own 404 check. Peter learned not to
+        // assume — the hard way, involving a wood chipper.
         async Task<DriveItem?> Fetch(bool expand) =>
             string.IsNullOrEmpty(path)
                 ? await _client.Drives[driveId].Root.GetAsync(rc =>
@@ -90,9 +97,10 @@ public class OneDriveProvider
             _cache.Set(key, (DriveItem?)null, NegativeTtl);
             return null;
         }
-        catch (ODataError e) when (e.ResponseStatusCode == 400)
+        catch (ODataError)
         {
-            // Almost certainly the "expand children on a non-folder" 400 — retry plain.
+            // Expand failed — almost always because the target is a file, not a folder.
+            // Retry the plain GET; if THAT 404s, it really doesn't exist.
             try
             {
                 item = await Fetch(expand: false);
