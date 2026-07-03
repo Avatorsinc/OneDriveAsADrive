@@ -77,7 +77,14 @@ Write-OK "Downloaded to $zipPath"
 if ($hashAsset) {
     Write-Step "Verifying SHA256..."
     $expected = ((Invoke-WebRequest $hashAsset.browser_download_url -UseBasicParsing).Content -split '\s+')[0].Trim().ToUpper()
-    $actual   = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToUpper()
+    # Get-FileHash can vanish when a damaged PSModulePath hides the Utility module
+    # (e.g. PowerShell 7 paths leaking into a 5.1 child process). certutil.exe is a
+    # plain executable that always exists, so fall back to it.
+    if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) {
+        $actual = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToUpper()
+    } else {
+        $actual = ((certutil -hashfile $zipPath SHA256)[1] -replace '\s','').ToUpper()
+    }
     if ($expected -ne $actual) {
         Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
         Write-Fail "SHA256 mismatch! Expected $expected but got $actual. Aborting - do NOT run this."

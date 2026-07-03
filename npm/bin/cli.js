@@ -89,6 +89,20 @@ function readSecret() {
 function run(cmd, args, opts = {}) {
   return spawnSync(cmd, args, { stdio: 'inherit', ...opts });
 }
+
+// When this CLI is run from PowerShell 7, pwsh's PSModulePath (which includes
+// "...\PowerShell\7\Modules") leaks through Node into the Windows PowerShell 5.1 child.
+// 5.1 then prefers PS7's higher-versioned Utility module, can't load it (.NET Core), and
+// script-function cmdlets like Get-FileHash silently vanish. pwsh scrubs this when it
+// spawns powershell.exe itself, but not through an intermediary like us — so we scrub.
+// With the variable absent, 5.1 rebuilds its own clean default module path.
+function envWithoutPSModulePath() {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) {
+    if (k.toLowerCase() === 'psmodulepath') delete env[k];
+  }
+  return env;
+}
 // Explorer shows WebDAV drives as the raw "\\localhost@8080\s" path unless we set a friendly
 // label. The MountPoints2 key for \\localhost@PORT\x is ##localhost@PORT#x; _LabelFromReg is
 // what Explorer displays, so "S: (Finance)" instead of "S: (\\localhost@8080)".
@@ -160,7 +174,7 @@ async function cmdInstall(flags) {
   if (flags.config) psArgs.push('-Config', String(flags.config));
   if (flags.port) psArgs.push('-Port', String(flags.port));
   log('Running installer (a UAC / admin prompt may appear)...');
-  const r = run('powershell', psArgs);
+  const r = run('powershell', psArgs, { env: envWithoutPSModulePath() });
   process.exit(r.status || 0);
 }
 
