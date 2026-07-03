@@ -239,7 +239,11 @@ Change the port for everything in `config.json` (`"port": 9090`), or override at
 
 ## Uninstall
 
-Easiest: `npx onedriveasadrive uninstall`. Or manually:
+Uninstall via **Settings → Apps** (or `npx onedriveasadrive uninstall`) removes the app, the background task, all files, and the drives' persistence.
+
+> If a mapped-drive icon still shows immediately after uninstall, it's a dead placeholder — Windows keeps live drive letters in your logon session, which an elevated uninstaller can't reach. It clears on **sign-out or reboot**, or right away with `net use <Letter>: /delete`.
+
+Manual removal:
 
 ```powershell
 # Remove all mapped drives (repeat for each letter you configured, e.g. O S T)

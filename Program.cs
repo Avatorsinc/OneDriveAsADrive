@@ -19,9 +19,35 @@ using OneDriveAsADrive.WebDav;
 var debugLevel = args.Any(a => a.Equals("--debug", StringComparison.OrdinalIgnoreCase));
 var showConsole = debugLevel || args.Any(a => a.Equals("--console", StringComparison.OrdinalIgnoreCase));
 var minLevel = debugLevel ? LogLevel.Debug : LogLevel.Information;
-if (showConsole) NativeConsole.Ensure();
 
 var config = MountConfig.Load();
+
+// ── First-run sign-in ─────────────────────────────────────────────────────────
+// --login just does the interactive WAM sign-in and exits — no web server. The
+// installer runs this ONCE, visibly, so the account picker has a real window to show
+// against (a hidden background start can't prompt, and consent silently faceplants -
+// which is exactly the bug that shipped nothing). After this, WAM has cached the token
+// and every hidden background start authenticates silently. Sign in once, giggity forever.
+if (args.Any(a => a.Equals("--login", StringComparison.OrdinalIgnoreCase)))
+{
+    NativeConsole.Ensure();
+    Console.WriteLine("OneDriveAsADrive - signing you in...");
+    using var loginFactory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true));
+    var loginTokens = new TokenManager(loginFactory.CreateLogger<TokenManager>(), config);
+    try
+    {
+        await loginTokens.GetAccessTokenAsync();
+        Console.WriteLine("Signed in. You can close this window - your drives are being set up.");
+        return;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine("Sign-in failed: " + ex.Message);
+        Environment.Exit(1);
+    }
+}
+
+if (showConsole) NativeConsole.Ensure();
 
 var builder = WebApplication.CreateBuilder(args);
 

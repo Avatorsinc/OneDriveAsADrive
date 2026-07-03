@@ -13,6 +13,9 @@
 .PARAMETER Config
     Optional path to a config.json to deploy machine-wide (to %ProgramData%). Requires admin.
     Use this to push SharePoint + OneDrive mounts to a machine (IT deployment).
+.PARAMETER LocalExe
+    Path to an already-present OneDriveAsADrive.exe (used by Setup.exe / winget, which
+    bundle the exe). Skips the download and SHA256 steps and installs that exe instead.
 .EXAMPLE
     iwr https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest/download/install.ps1 -UseBasicParsing | iex
 .EXAMPLE
@@ -21,7 +24,8 @@
 param(
     [string]$DriveLetter = "Z",
     [int]$Port = 8080,
-    [string]$Config
+    [string]$Config,
+    [string]$LocalExe
 )
 
 Set-StrictMode -Version Latest
@@ -54,7 +58,14 @@ if ($Config) {
     Write-OK "Deployed config to $machineCfgDir\config.json"
 }
 
-# -- 1. Download latest release -----------------------------------------------
+# -- 1. Get the payload ---------------------------------------------------------
+# Two roads to Quahog: normally we download the latest release from GitHub and verify it.
+# With -LocalExe (the Setup.exe / winget road) the exe already RODE IN with the installer
+# that launched us - no download, no hash check needed, it never touched the network.
+if ($LocalExe) {
+    if (-not (Test-Path $LocalExe)) { Write-Fail "Bundled exe not found: $LocalExe" }
+    Write-OK "Using bundled exe: $LocalExe"
+} else {
 Write-Step "Fetching latest release..."
 try {
     $release   = Invoke-RestMethod "https://api.github.com/repos/$RepoOwner/$RepoName/releases/latest"
@@ -99,8 +110,9 @@ if ($hashAsset) {
 } else {
     Write-Host "  [WARN] No .sha256 published for this release - skipping integrity check." -ForegroundColor Yellow
 }
+}
 
-# -- 2. Extract ---------------------------------------------------------------
+# -- 2. Install the files -------------------------------------------------------
 Write-Step "Installing to $InstallDir..."
 # Stop any running instance so we can overwrite the exe.
 Get-Process $RepoName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -110,9 +122,13 @@ if (Test-Path $InstallDir) {
     Get-ChildItem $InstallDir -Exclude ".secret","config.json" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
-Expand-Archive $zipPath $InstallDir -Force
-Remove-Item $zipPath -Force
-Write-OK "Extracted"
+if ($LocalExe) {
+    Copy-Item $LocalExe $ExePath -Force
+} else {
+    Expand-Archive $zipPath $InstallDir -Force
+    Remove-Item $zipPath -Force
+}
+Write-OK "Installed"
 
 # -- 2b. Read effective config (to know which drives to map + the port) ---------
 # The SERVER reads config.json too, so the installer and the exe MUST agree on both the
@@ -189,6 +205,21 @@ try {
     $shortcut.Description  = "OneDriveAsADrive WebDAV bridge"
     $shortcut.Save()
     Write-OK "Startup shortcut created"
+}
+
+# -- 4b. First-run sign-in (interactive, needs a visible window) ----------------
+# WAM's account picker CANNOT show from a hidden background start - it needs a real
+# window, or consent silently fails and no drive ever maps. So we prime the token cache
+# here with a one-time visible sign-in. Once WAM has cached the token, every hidden
+# background start (this installer's server, and the logon task) authenticates silently.
+# We only prompt if there's no cached token yet, so re-running the installer is quiet.
+Write-Step "Signing in (a Microsoft sign-in window may appear)..."
+$login = Start-Process $ExePath -ArgumentList "--login" -PassThru -Wait
+if ($login.ExitCode -ne 0) {
+    Write-Host "  [WARN] Sign-in didn't complete. Drives may be empty until you run:" -ForegroundColor Yellow
+    Write-Host "         `"$ExePath`" --login" -ForegroundColor DarkYellow
+} else {
+    Write-OK "Signed in"
 }
 
 # -- 5. Start the server now (hidden) ------------------------------------------

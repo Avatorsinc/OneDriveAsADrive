@@ -9,3 +9,13 @@
 launchSettings.json
 Properties/launchSettings.json
 appsettings.Development.json
+
+# wingetcreate output - these files get PR'd to microsoft/winget-pkgs, not committed here
+/manifests/
+
+# Inno Setup compiler output
+/installer/Output/
+
+# code-signing material must never enter a repo
+*.pfx
+*.p12
