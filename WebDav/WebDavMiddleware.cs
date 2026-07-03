@@ -31,6 +31,19 @@ public class WebDavMiddleware(
 
     public async Task InvokeAsync(HttpContext ctx)
     {
+        // SECURITY #0: the packet must physically come from this machine. The Host check
+        // below stops DNS rebinding, but if someone launches with --urls http://*:8080 we're
+        // reachable off-box, and a remote client can just send "Host: localhost" to sail past
+        // it. So first: if the remote IP isn't loopback, the door doesn't even open. Belt and
+        // suspenders, because the thing behind it holds your Graph token.
+        var remote = ctx.Connection.RemoteIpAddress;
+        if (remote != null && !System.Net.IPAddress.IsLoopback(remote))
+        {
+            log.LogWarning("Rejected non-loopback client {Ip}", remote);
+            ctx.Response.StatusCode = 403;
+            return;
+        }
+
         // SECURITY #1: only answer to loopback host names. A malicious website can point
         // its DNS at 127.0.0.1 (DNS rebinding) and try to read your files through the
         // browser — but its requests carry ITS domain in the Host header, not "localhost".
@@ -262,7 +275,11 @@ public class WebDavMiddleware(
     private XElement BuildResponse(string path, DriveItem item)
     {
         var isFolder = item.Folder != null;
-        var href = EncodePath(path) + (isFolder ? "/" : "");
+        // Folders get exactly one trailing slash. The mapped root already arrives as "/z/",
+        // so blindly appending would emit "/z//" and some clients choke on the double slash.
+        // Trim first, then add the one we want.
+        var encoded = EncodePath(path);
+        var href = isFolder ? encoded.TrimEnd('/') + "/" : encoded;
 
         var props = new List<XElement>
         {

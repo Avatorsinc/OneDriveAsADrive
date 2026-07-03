@@ -78,6 +78,13 @@ public class TokenManager
             .Build();
     }
 
+    // The BACKGROUND SERVER must never pop a sign-in window — it's a windowless WinExe, so an
+    // interactive prompt has nothing to attach to and just hangs whatever launched it (which is
+    // exactly how a "silent" winget install stalled forever). So interactive is OFF by default:
+    // the server does silent-only auth and, if there's no cached token yet, fails cleanly rather
+    // than prompting. The ONLY place a window exists is the `--login` step, which flips this on.
+    public bool AllowInteractive { get; set; }
+
     public async Task<string> GetAccessTokenAsync()
     {
         // First try silent — like when Stewie does something terrible and nobody notices.
@@ -87,9 +94,6 @@ public class TokenManager
             ? accounts.FirstOrDefault(a => string.Equals(a.Username, _account, StringComparison.OrdinalIgnoreCase))
             : accounts.FirstOrDefault();
 
-        if (_account != null && account == null)
-            _log.LogInformation("Pinned account '{Account}' not cached yet — will prompt for it.", _account);
-
         try
         {
             var silent = await _app.AcquireTokenSilent(_scopes, account)
@@ -98,18 +102,24 @@ public class TokenManager
             // Giggity. Token acquired without anyone knowing.
             return silent.AccessToken;
         }
+        catch (MsalUiRequiredException) when (!AllowInteractive)
+        {
+            // Silent auth failed and we're the background server — do NOT prompt. Let the caller
+            // deal with a token-less server (drive stays empty until someone runs --login). Popping
+            // a window from here is what hung the unattended install; we're not making that mistake.
+            throw new InvalidOperationException(
+                "No cached credentials. Run 'OneDriveAsADrive.exe --login' to sign in.");
+        }
         catch (MsalUiRequiredException)
         {
-            // Silent auth failed. Like Peter trying to sneak out of church early.
-            _log.LogInformation("Silent auth failed — prompting via WAM (your existing Windows work session)...");
+            // Interactive path (--login only). Like Peter finally reading the room.
+            _log.LogInformation("Silent auth failed — prompting via WAM...");
         }
 
-        // Interactive WAM — Windows will use the already-signed-in work account.
-        // Should be a quick popup at worst. NOT a full MFA rodeo. Victory is mine!
-        // A machine can have several signed-in identities (e.g. a personal @outlook/@gmail
-        // account AND a work @tenant.onmicrosoft.com account), and only ONE can reach a given
-        // tenant's SharePoint. If config pins an account, sign straight into it; otherwise show
-        // the picker so the user chooses instead of us grabbing whichever was cached first.
+        // Interactive WAM — ONLY reached in --login mode (AllowInteractive = true), where a real
+        // console window exists for the picker. A machine can have several signed-in identities
+        // (personal @outlook AND work @tenant), and only one can reach a given tenant's SharePoint;
+        // a pinned account signs straight in, otherwise the user picks.
         var interactive = _app.AcquireTokenInteractive(_scopes)
             .WithParentActivityOrWindow(ParentWindow());
         interactive = _account != null

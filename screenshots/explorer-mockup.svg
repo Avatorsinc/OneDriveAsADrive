@@ -1,0 +1,28 @@
+<svg viewBox="0 0 900 480" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Roboto, sans-serif" role="img">
+<title>File Explorer showing mapped OneDrive and SharePoint drives</title>
+<desc>A File Explorer This PC window with OneDrive, Finance and Marketing mapped as network drive letters.</desc>
+<rect width="900" height="480" rx="12" fill="#202020"/>
+<rect width="900" height="40" rx="12" fill="#2b2b2b"/><rect y="20" width="900" height="20" fill="#2b2b2b"/>
+<text x="40" y="25" fill="#e6e6e6" font-size="13">This PC</text>
+<circle cx="828" cy="20" r="5" fill="#3a3a3a"/><circle cx="852" cy="20" r="5" fill="#3a3a3a"/><rect x="872" y="15" width="10" height="10" rx="2" fill="#c33"/>
+<rect y="40" width="900" height="38" fill="#252525"/>
+<text x="24" y="64" fill="#9aa0a6" font-size="12">New    Cut  Copy  Paste  Delete    Sort    View</text>
+<rect x="180" y="86" width="540" height="26" rx="4" fill="#2d2d2d" stroke="#3a3a3a"/><text x="192" y="103" fill="#c9c9c9" font-size="12">This PC  &gt;</text>
+<rect y="78" width="170" height="402" fill="#1d1d1d"/>
+<text x="18" y="132" fill="#c9c9c9" font-size="12">Home</text>
+<text x="18" y="160" fill="#c9c9c9" font-size="12">OneDrive</text>
+<text x="18" y="192" fill="#e6e6e6" font-size="12" font-weight="600">This PC</text>
+<text x="18" y="220" fill="#c9c9c9" font-size="12">Network</text>
+<text x="196" y="146" fill="#9aa0a6" font-size="12" font-weight="600">Devices and drives</text>
+<g font-size="12.5">
+<rect x="196" y="158" width="220" height="44" rx="6" fill="#262626"/><text x="214" y="178" fill="#e6e6e6">Windows (C:)</text><rect x="214" y="186" width="150" height="6" rx="3" fill="#3a3a3a"/><rect x="214" y="186" width="120" height="6" rx="3" fill="#4c8bf5"/>
+<rect x="430" y="158" width="220" height="44" rx="6" fill="#262626"/><text x="448" y="178" fill="#e6e6e6">Local Disk (D:)</text><rect x="448" y="186" width="150" height="6" rx="3" fill="#3a3a3a"/><rect x="448" y="186" width="70" height="6" rx="3" fill="#4c8bf5"/>
+</g>
+<text x="196" y="242" fill="#9aa0a6" font-size="12" font-weight="600">Network locations</text>
+<g font-size="12.5">
+<rect x="196" y="254" width="220" height="52" rx="6" fill="#1e332b" stroke="#2ea04366"/><text x="214" y="276" fill="#e6e6e6" font-weight="600">OneDrive (O:)</text><text x="214" y="294" fill="#8a8a8a" font-size="11">\\localhost@8080\o</text>
+<rect x="430" y="254" width="220" height="52" rx="6" fill="#1e332b" stroke="#2ea04366"/><text x="448" y="276" fill="#e6e6e6" font-weight="600">Finance (S:)</text><text x="448" y="294" fill="#8a8a8a" font-size="11">\\localhost@8080\s</text>
+<rect x="196" y="316" width="220" height="52" rx="6" fill="#1e332b" stroke="#2ea04366"/><text x="214" y="338" fill="#e6e6e6" font-weight="600">Marketing (T:)</text><text x="214" y="356" fill="#8a8a8a" font-size="11">\\localhost@8080\t</text>
+</g>
+<rect y="454" width="900" height="26" fill="#252525"/><text x="24" y="471" fill="#9aa0a6" font-size="11">5 items</text>
+</svg>

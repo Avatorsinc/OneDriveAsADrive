@@ -1,0 +1,29 @@
+<svg viewBox="0 0 860 360" xmlns="http://www.w3.org/2000/svg" font-family="Inter, Segoe UI, Roboto, sans-serif" role="img">
+<title>Comparison of OneDriveAsADrive with other approaches</title>
+<desc>Feature comparison across OneDriveAsADrive, the OneDrive sync client, rclone mount, and RaiDrive.</desc>
+<rect width="860" height="360" rx="14" fill="#1e1f22"/>
+<text x="30" y="40" fill="#dfe1e5" font-size="18" font-weight="700">How it compares</text>
+<text x="470" y="72" text-anchor="middle" fill="#6ea8ff" font-size="12" font-weight="700">OneDriveAsADrive</text>
+<text x="590" y="72" text-anchor="middle" fill="#868a91" font-size="12">OneDrive sync</text>
+<text x="695" y="72" text-anchor="middle" fill="#868a91" font-size="12">rclone mount</text>
+<text x="800" y="72" text-anchor="middle" fill="#868a91" font-size="12">RaiDrive</text>
+<line x1="30" y1="82" x2="830" y2="82" stroke="#43454a"/>
+<g font-size="12.5">
+<text x="30" y="110" fill="#bcbec4">Real drive letter (not a folder)</text>
+<text x="470" y="110" text-anchor="middle" fill="#5fb865" font-weight="700">Yes</text><text x="590" y="110" text-anchor="middle" fill="#db5c5c">No</text><text x="695" y="110" text-anchor="middle" fill="#5fb865">Yes</text><text x="800" y="110" text-anchor="middle" fill="#5fb865">Yes</text>
+<text x="30" y="140" fill="#bcbec4">No local disk duplication</text>
+<text x="470" y="140" text-anchor="middle" fill="#5fb865" font-weight="700">Yes</text><text x="590" y="140" text-anchor="middle" fill="#e8a33d">Partial</text><text x="695" y="140" text-anchor="middle" fill="#5fb865">Yes</text><text x="800" y="140" text-anchor="middle" fill="#5fb865">Yes</text>
+<text x="30" y="170" fill="#bcbec4">SharePoint libraries as drives</text>
+<text x="470" y="170" text-anchor="middle" fill="#5fb865" font-weight="700">Yes</text><text x="590" y="170" text-anchor="middle" fill="#e8a33d">Shortcut</text><text x="695" y="170" text-anchor="middle" fill="#5fb865">Yes</text><text x="800" y="170" text-anchor="middle" fill="#5fb865">Yes</text>
+<text x="30" y="200" fill="#bcbec4">No app registration / config file only</text>
+<text x="470" y="200" text-anchor="middle" fill="#5fb865" font-weight="700">Yes</text><text x="590" y="200" text-anchor="middle" fill="#5fb865">Yes</text><text x="695" y="200" text-anchor="middle" fill="#db5c5c">No</text><text x="800" y="200" text-anchor="middle" fill="#5fb865">Yes</text>
+<text x="30" y="230" fill="#bcbec4">Free &amp; open source</text>
+<text x="470" y="230" text-anchor="middle" fill="#5fb865" font-weight="700">MIT</text><text x="590" y="230" text-anchor="middle" fill="#5fb865">Free</text><text x="695" y="230" text-anchor="middle" fill="#5fb865">MIT</text><text x="800" y="230" text-anchor="middle" fill="#e8a33d">Freemium</text>
+<text x="30" y="260" fill="#bcbec4">IT fleet deploy (Intune / GPO)</text>
+<text x="470" y="260" text-anchor="middle" fill="#5fb865" font-weight="700">Yes</text><text x="590" y="260" text-anchor="middle" fill="#5fb865">Yes</text><text x="695" y="260" text-anchor="middle" fill="#e8a33d">Scripted</text><text x="800" y="260" text-anchor="middle" fill="#e8a33d">Paid</text>
+<text x="30" y="290" fill="#bcbec4">No CLI / GUI-free setup</text>
+<text x="470" y="290" text-anchor="middle" fill="#5fb865" font-weight="700">Yes</text><text x="590" y="290" text-anchor="middle" fill="#5fb865">Yes</text><text x="695" y="290" text-anchor="middle" fill="#db5c5c">CLI</text><text x="800" y="290" text-anchor="middle" fill="#5fb865">GUI</text>
+</g>
+<line x1="30" y1="308" x2="830" y2="308" stroke="#43454a"/>
+<text x="30" y="332" fill="#6f737a" font-size="10.5">Partial = works with caveats. Reflects typical default setups, Jul 2026; competitors evolve.</text>
+</svg>

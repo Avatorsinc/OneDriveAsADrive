@@ -1,7 +1,10 @@
-# Per-user cleanup for the Setup.exe uninstaller. Runs as the ORIGINAL user (not the
-# elevated uninstaller) because the scheduled task, mapped drives, and %LOCALAPPDATA%
-# files all live in the user's world. Undoes everything install.ps1 set up - the
-# rare Griffin family plan that actually cleans up after itself.
+# Per-user cleanup invoked by the Setup.exe uninstaller. IMPORTANT: this runs ELEVATED
+# (Inno's UninstallRun can't runasoriginaluser), so HKCU/%LOCALAPPDATA% here resolve to
+# whoever approved the UAC prompt. On the normal case (admin uninstalling on their own PC)
+# that's the same profile that installed, so cleanup is complete. In a separate-admin
+# install it's the admin's profile - the original user's leftovers are handled by
+# `npx onedriveasadrive uninstall` run as that user (see README Uninstall). Don't assume
+# this always runs as the installing user; future you, this comment is the warning.
 
 $RepoName = "OneDriveAsADrive"
 

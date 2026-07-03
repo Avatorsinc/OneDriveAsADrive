@@ -33,7 +33,8 @@ if (args.Any(a => a.Equals("--login", StringComparison.OrdinalIgnoreCase)))
     NativeConsole.Ensure();
     Console.WriteLine("OneDriveAsADrive - signing you in...");
     using var loginFactory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true));
-    var loginTokens = new TokenManager(loginFactory.CreateLogger<TokenManager>(), config);
+    // This is the ONE place a real window exists, so this is the ONE place interactive is allowed.
+    var loginTokens = new TokenManager(loginFactory.CreateLogger<TokenManager>(), config) { AllowInteractive = true };
     try
     {
         await loginTokens.GetAccessTokenAsync();
@@ -75,8 +76,10 @@ var app = builder.Build();
 app.Logger.LogInformation("Config: {Source} — serving {Count} mount(s)",
     config.SourcePath ?? "defaults (single OneDrive on Z:)", config.Mounts.Count);
 
-// Warm up auth on startup. Better to get the crying out of the way now
-// than mid-request when Windows File Explorer is waiting.
+// Warm up auth on startup — but SILENT ONLY (AllowInteractive stays false here). If there's a
+// cached token, great, we're warm. If not, we DON'T pop a window and we DON'T exit — we start the
+// server anyway and let the user sign in via --login. Exiting-on-no-token is what made a silent
+// install look like a failed install; a token-less server that's up and waiting is the right call.
 var tokenManager = app.Services.GetRequiredService<TokenManager>();
 try
 {
@@ -85,10 +88,9 @@ try
 }
 catch (Exception ex)
 {
-    // Something went wrong. This is worse than the time Peter got his arm stuck in the vending machine.
-    // Make sure an account is signed in to Windows (Settings → Accounts → Work or school / Email & accounts).
-    app.Logger.LogError(ex, "Auth failed — is an account signed in? Deucedly inconvenient.");
-    return;
+    // No cached token yet. Not fatal: serve anyway, the drive just answers 401-ish until sign-in.
+    // Peter waits by the fridge; the server waits for --login.
+    app.Logger.LogWarning("Not signed in yet ({Reason}). Run 'OneDriveAsADrive.exe --login'. Serving token-less for now.", ex.Message);
 }
 
 app.UseMiddleware<WebDavMiddleware>();

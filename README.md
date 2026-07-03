@@ -1,5 +1,7 @@
 # OneDriveAsADrive
 
+![OneDriveAsADrive — mount OneDrive and SharePoint as Windows drive letters](screenshots/hero.svg)
+
 Map **OneDrive** — personal *or* work/school — **and SharePoint document libraries** as real Windows **network drive letters** in File Explorer (e.g. `O:\`, `S:\`). One drive letter per library, like the mapped drives your file server used to give you — a modern stand-in for DFS and on-prem network shares. No failed WebDAV connections, no app registration on your side. Deployable by IT to a whole fleet via Intune/GPO.
 
 > **Personal OneDrive works out of the box.** Work/school and SharePoint work too, but they use broader Graph permissions that locked-down tenants gate behind a one-time admin consent — see [Accounts & Access](#accounts--access).
@@ -19,6 +21,20 @@ Map **OneDrive** — personal *or* work/school — **and SharePoint document lib
 |---|---|
 | ![Building and running OneDriveAsADrive](screenshots/Build.png) | ![Mapped network drive in File Explorer](screenshots/AddedDrive.png) |
 
+Multiple libraries, each its own drive letter under **Network locations**:
+
+![File Explorer showing OneDrive, Finance and Marketing as mapped network drives](screenshots/explorer-mockup.svg)
+
+A file written to a mapped drive lands in the SharePoint library instantly — same bytes in File Explorer and in the browser:
+
+![A SharePoint document library mounted as a Windows drive](screenshots/sharepoint.png)
+
+---
+
+## How it compares
+
+![Comparison of OneDriveAsADrive with the OneDrive sync client, rclone mount, and RaiDrive](screenshots/comparison.svg)
+
 ---
 
 
@@ -26,15 +42,7 @@ Map **OneDrive** — personal *or* work/school — **and SharePoint document lib
 
 Windows' built-in WebDAV client fails with modern Microsoft 365 accounts because those tenants require OAuth2 / modern auth — basic username/password WebDAV is dead. OneDriveAsADrive runs a **local** WebDAV server that speaks to Microsoft Graph API (which handles modern auth correctly) and lets Windows map it as a normal drive letter.
 
-```
-File Explorer ──► O:\  S:\  T:\  (WebDAV on localhost, one prefix per drive)
-                    │
-              OneDriveAsADrive
-                    │
-              Microsoft Graph API
-                    │
-     OneDrive  +  SharePoint document libraries
-```
+![Architecture: File Explorer drive letters to a local WebDAV bridge to Microsoft Graph to OneDrive and SharePoint](screenshots/architecture.svg)
 
 Each mount is served under its own URL prefix — `http://localhost:8080/o/`, `/s/`, `/t/` — so a single background process backs every drive letter.
 
@@ -84,11 +92,21 @@ After that one click, every user in the tenant can use OneDriveAsADrive with no 
 
 ## Quick Install
 
-Open **PowerShell as Administrator** and run:
+**winget** (recommended):
+
+```powershell
+winget install onedriveasadrive
+```
+
+> ℹ️ *Rolling out — the [winget-pkgs submission](https://github.com/microsoft/winget-pkgs/pull/397459) is in review. Until it merges, use one of the methods below.*
+
+**Or the one-line script** — open **PowerShell as Administrator** and run:
 
 ```powershell
 iwr https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest/download/install.ps1 -UseBasicParsing | iex
 ```
+
+**Or download** `OneDriveAsADrive-Setup.exe` from [Releases](https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest) and run it.
 
 The installer will:
 1. Download the latest release (and verify its SHA256)
@@ -113,11 +131,11 @@ To mount SharePoint or multiple libraries, drop a [`config.json`](#sharepoint--m
    Start-Service WebClient
    ```
    > **About `BasicAuthLevel = 2`:** this is a *machine-wide* setting that allows the Windows WebDAV client to send Basic credentials to HTTP (non-HTTPS) servers. OneDriveAsADrive **requires** it — the server authenticates every request with a per-install secret over `http://localhost`, and without this setting Windows silently refuses to send it, so mapping fails with error 1244/1312. The credentials only ever travel over loopback (`127.0.0.1`), never the network. The Windows default is `1` (HTTPS only); the [Uninstall](#uninstall) section shows how to revert it.
-4. Run the app:
+4. Run the app **with `--console`** (needed to see the secret — normal background runs redact it from the log):
    ```powershell
-   .\OneDriveAsADrive.exe
+   .\OneDriveAsADrive.exe --console
    ```
-   On startup it prints the exact `net use` command **including the auth secret** it generated. Copy that line.
+   The console prints the exact `net use` command **including the auth secret** it generated. Copy that line. (The secret is also always in `%LOCALAPPDATA%\OneDriveAsADrive\.secret`.)
 5. Map the drive (in a separate PowerShell window) using the secret from step 4. **Note the `/z/` path** — each drive lives under its own prefix (the lower-cased drive letter):
    ```powershell
    net use Z: http://localhost:8080/z/ /user:onedrive <secret> /persistent:yes
@@ -169,12 +187,6 @@ Machine-wide wins if both exist. No config at all → a single OneDrive on `Z:` 
 > ⚠️ Adding your first SharePoint mount widens the Graph permissions the app requests (see [Accounts & Access](#accounts--access)) — you may hit a one-time consent prompt. Restart the app after adding one so it re-authenticates with the new scopes.
 
 > **Moving files between drives:** each drive is a separate Graph drive, so dragging a file from `S:` to `O:` can't be a server-side move — Windows falls back to **copy-then-delete** (a full download + re-upload). Moves *within* a single drive are instant.
-
-
-
-![A SharePoint document library mounted as a Windows drive — the same file appears both in File Explorer and in SharePoint online](screenshots/sharepoint.png)
-
-A file written to the mapped drive lands in the SharePoint library instantly — identical bytes whether you open it from the drive letter in File Explorer or from SharePoint in the browser. It's not a copy or a sync folder; the drive *is* the library.
 
 ---
 
@@ -241,9 +253,16 @@ Change the port for everything in `config.json` (`"port": 9090`), or override at
 
 ## Uninstall
 
-Uninstall via **Settings → Apps** (or `npx onedriveasadrive uninstall`) removes the app, the background task, all files, and the drives' persistence.
+Two removal methods, and they clean **different** things:
+
+- **Settings → Apps → OneDriveAsADrive** — removes the installed program (the `Program Files` payload and the Apps list entry) and, in the normal case (you're an admin on your own PC), your per-user task, drives, secret, and files too.
+- **`npx onedriveasadrive uninstall`** — removes the **per-user** pieces (background task, mapped drives, secret, logs, `%LOCALAPPDATA%` config) running as *you*, but does **not** remove a `Program Files` install or its Apps entry.
+
+For a normal single-admin machine, **Settings → Apps alone is fully clean.**
 
 > If a mapped-drive icon still shows immediately after uninstall, it's a dead placeholder — Windows keeps live drive letters in your logon session, which an elevated uninstaller can't reach. It clears on **sign-out or reboot**, or right away with `net use <Letter>: /delete`.
+
+> **Installed as a standard user with a *separate* admin account?** The Settings → Apps uninstaller runs elevated as that admin, so it removes the `Program Files` app but can't reach *your* per-user task, drives, and files. Best cleanup: run **`npx onedriveasadrive uninstall`** as yourself first (clears the per-user pieces), then remove from **Settings → Apps** as admin (clears the program).
 
 Manual removal:
 
@@ -328,12 +347,22 @@ The sync client copies state to disk, needs per-user library setup clicks, and s
 
 ---
 
+## Documentation
+
+- [Security & threat model](SECURITY.md)
+- [Privacy](PRIVACY.md)
+- [Admin consent (work/school tenants)](docs/admin-consent.md)
+- [IT deployment — Intune / GPO / SCCM](docs/intune-gpo-deployment.md)
+- [Compatibility matrix](docs/compatibility-matrix.md)
+
+---
+
 ## Building from Source
 
 ```powershell
 git clone https://github.com/Avatorsinc/OneDriveAsADrive
 cd OneDriveAsADrive
-dotnet run
+dotnet run -- --console
 ```
 
 Publish a self-contained single-file exe:

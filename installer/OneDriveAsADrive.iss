@@ -52,7 +52,16 @@ Filename: "{sys}\sc.exe"; Parameters: "start WebClient"; Flags: runhidden; Statu
 ; The per-user setup (task, server, secret, drive mapping) MUST run as the ORIGINAL user:
 ; drive letters live per logon session, so mapping them from the elevated context would
 ; give the drives to an admin session nobody is looking at. Classic wrong-living-room move.
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install.ps1"" -LocalExe ""{app}\OneDriveAsADrive.exe"""; Flags: runasoriginaluser runhidden waituntilterminated; StatusMsg: "Registering background service and mapping drives..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install.ps1"" -LocalExe ""{app}\OneDriveAsADrive.exe""{code:SilentArg}"; Flags: runasoriginaluser runhidden waituntilterminated; StatusMsg: "Registering background service and mapping drives..."
+
+[Code]
+// When Setup runs silently (winget /VERYSILENT, IT push), tell install.ps1 to skip the
+// interactive sign-in - otherwise a Microsoft sign-in popup hangs the unattended install
+// waiting for a click that never comes. Interactive double-click installs still sign in.
+function SilentArg(Param: String): String;
+begin
+  if WizardSilent then Result := ' -Silent' else Result := '';
+end;
 
 [UninstallRun]
 ; Runs elevated (Inno has no runasoriginaluser here). The elevated session can't SEE the

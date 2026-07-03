@@ -1,0 +1,27 @@
+<svg viewBox="0 0 1000 260" xmlns="http://www.w3.org/2000/svg" font-family="Inter, Segoe UI, Roboto, sans-serif" role="img">
+<title>OneDriveAsADrive banner</title>
+<desc>OneDriveAsADrive — mount OneDrive and SharePoint as Windows drive letters.</desc>
+<rect width="1000" height="260" rx="16" fill="#1e1f22"/>
+<rect x="0" y="0" width="6" height="260" fill="url(#jb)"/>
+<text x="60" y="96" fill="#dfe1e5" font-size="44" font-weight="800">OneDriveAsADrive</text>
+<text x="62" y="134" font-size="19" font-weight="600" fill="url(#jb)">Mount OneDrive &amp; SharePoint as real Windows drive letters</text>
+<text x="62" y="164" fill="#868a91" font-size="14">No sync client · no app registration · modern OAuth2/MFA · IT-deployable</text>
+<g transform="translate(60,190)" font-size="13" font-weight="600">
+<rect x="0" y="0" width="150" height="30" rx="8" fill="#2b2d30" stroke="#43454a"/><text x="75" y="20" text-anchor="middle" fill="#bcbec4">winget · npm · exe</text>
+<rect x="162" y="0" width="92" height="30" rx="8" fill="#2b2d30" stroke="#5fb86555"/><text x="208" y="20" text-anchor="middle" fill="#5fb865">MIT</text>
+<rect x="266" y="0" width="130" height="30" rx="8" fill="#2b2d30" stroke="#43454a"/><text x="331" y="20" text-anchor="middle" fill="#bcbec4">Windows 10 / 11</text>
+</g>
+<g transform="translate(720,60)">
+<rect x="0" y="0" width="220" height="140" rx="10" fill="#2b2d30" stroke="#43454a"/>
+<rect x="0" y="0" width="220" height="26" rx="10" fill="#313438"/><rect x="0" y="14" width="220" height="12" fill="#313438"/>
+<circle cx="16" cy="13" r="4" fill="#db5c5c"/><circle cx="30" cy="13" r="4" fill="#e8a33d"/><circle cx="44" cy="13" r="4" fill="#5fb865"/>
+<text x="110" y="17" text-anchor="middle" fill="#868a91" font-size="10">This PC</text>
+<g font-size="11">
+<rect x="14" y="40" width="90" height="34" rx="6" fill="#1e1f22" stroke="#3574f0aa"/><text x="59" y="61" text-anchor="middle" fill="#3574f0" font-weight="700">O:  OneDrive</text>
+<rect x="116" y="40" width="90" height="34" rx="6" fill="#1e1f22" stroke="#3574f0aa"/><text x="161" y="61" text-anchor="middle" fill="#3574f0" font-weight="700">S:  Finance</text>
+<rect x="14" y="82" width="90" height="34" rx="6" fill="#1e1f22" stroke="#3574f0aa"/><text x="59" y="103" text-anchor="middle" fill="#3574f0" font-weight="700">T:  Marketing</text>
+<rect x="116" y="82" width="90" height="34" rx="6" fill="#1e1f22" stroke="#5fb86555"/><text x="161" y="103" text-anchor="middle" fill="#5fb865" font-weight="700">+ add</text>
+</g>
+</g>
+<defs><linearGradient id="jb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fe2857"/><stop offset="0.5" stop-color="#ff9d2c"/><stop offset="1" stop-color="#6b57ff"/></linearGradient></defs>
+</svg>

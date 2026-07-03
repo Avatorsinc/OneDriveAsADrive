@@ -297,6 +297,13 @@ public class OneDriveProvider
 
             pos += read;
         }
+
+        // If the client's stream dried up before we sent every byte Graph is expecting, the
+        // upload session is now a half-written file. Do NOT let the caller PUT a 201 for that -
+        // a truncated upload silently reported as success is how you lose data and trust.
+        if (pos != total)
+            throw new IOException(
+                $"Upload truncated: sent {pos} of {total} bytes. The source stream ended early.");
     }
 
     // Reads up to 'count' bytes, looping until it has them or the stream ends —

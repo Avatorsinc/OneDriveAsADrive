@@ -25,7 +25,11 @@ param(
     [string]$DriveLetter = "Z",
     [int]$Port = 8080,
     [string]$Config,
-    [string]$LocalExe
+    [string]$LocalExe,
+    # Unattended mode (winget /VERYSILENT, IT push). Skips the interactive first-run sign-in
+    # so the install completes with ZERO user input - a sign-in popup mid-silent-install hangs
+    # the winget sandbox forever. Sign-in then happens on first drive access / next logon.
+    [switch]$Silent
 )
 
 Set-StrictMode -Version Latest
@@ -212,14 +216,23 @@ try {
 # window, or consent silently fails and no drive ever maps. So we prime the token cache
 # here with a one-time visible sign-in. Once WAM has cached the token, every hidden
 # background start (this installer's server, and the logon task) authenticates silently.
-# We only prompt if there's no cached token yet, so re-running the installer is quiet.
-Write-Step "Signing in (a Microsoft sign-in window may appear)..."
-$login = Start-Process $ExePath -ArgumentList "--login" -PassThru -Wait
-if ($login.ExitCode -ne 0) {
-    Write-Host "  [WARN] Sign-in didn't complete. Drives may be empty until you run:" -ForegroundColor Yellow
-    Write-Host "         `"$ExePath`" --login" -ForegroundColor DarkYellow
+#
+# SILENT/UNATTENDED: absolutely NOT here. A sign-in popup during a winget /VERYSILENT
+# install waits forever for a click that never comes - which is exactly why validation
+# reported "failed to install without user input". In silent mode we skip it entirely;
+# the user just signs in the first time they open the drive (or at next logon). Peter
+# learned to read the room; so did the installer.
+if ($Silent) {
+    Write-Host "  [silent] Skipping interactive sign-in - will prompt on first drive access." -ForegroundColor DarkGray
 } else {
-    Write-OK "Signed in"
+    Write-Step "Signing in (a Microsoft sign-in window may appear)..."
+    $login = Start-Process $ExePath -ArgumentList "--login" -PassThru -Wait
+    if ($login.ExitCode -ne 0) {
+        Write-Host "  [WARN] Sign-in didn't complete. Drives may be empty until you run:" -ForegroundColor Yellow
+        Write-Host "         `"$ExePath`" --login" -ForegroundColor DarkYellow
+    } else {
+        Write-OK "Signed in"
+    }
 }
 
 # -- 5. Start the server now (hidden) ------------------------------------------

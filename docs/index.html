@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mount OneDrive and SharePoint as Windows Drive Letters — OneDriveAsADrive</title>
+<meta name="description" content="Map OneDrive and SharePoint document libraries as real Windows network drive letters in File Explorer. No sync client, no app registration, modern OAuth2/MFA. Free and open source, IT-deployable via Intune/GPO.">
+<link rel="canonical" href="https://avatorsinc.github.io/OneDriveAsADrive/">
+<meta property="og:title" content="OneDriveAsADrive — OneDrive & SharePoint as Windows drive letters">
+<meta property="og:description" content="Map OneDrive and SharePoint libraries as real Windows drive letters. No sync client, no app registration. Free, open source, IT-deployable.">
+<meta property="og:type" content="website">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1e1f22; color: #bcbec4; font-family: "Inter", "Segoe UI", Roboto, system-ui, sans-serif; line-height: 1.6; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { color: #dfe1e5; font-size: 40px; font-weight: 800; letter-spacing: -0.5px; }
+  .tag { font-size: 20px; margin: 12px 0 4px; font-weight: 600; background: linear-gradient(120deg,#fe2857,#ff9d2c 50%,#6b57ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: #868a91; font-size: 15px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin: 28px 0 8px; }
+  .btn { display: inline-block; padding: 11px 20px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 15px; }
+  .btn.primary { background: #3574f0; color: #fff; }
+  .btn.ghost { border: 1px solid #43454a; color: #bcbec4; }
+  code, pre { font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace; }
+  pre { background: #2b2d30; border: 1px solid #43454a; border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 14px 0; color: #dfe1e5; font-size: 14px; }
+  h2 { color: #dfe1e5; font-size: 24px; margin: 44px 0 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-top: 8px; }
+  .card { background: #2b2d30; border: 1px solid #43454a; border-radius: 10px; padding: 16px 18px; }
+  .card h3 { color: #dfe1e5; font-size: 16px; margin-bottom: 6px; }
+  .card p { color: #868a91; font-size: 14px; }
+  a { color: #6ea8ff; }
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid #393b40; color: #6f737a; font-size: 13px; }
+  img { max-width: 100%; border-radius: 12px; margin: 24px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>OneDriveAsADrive</h1>
+  <p class="tag">Mount OneDrive &amp; SharePoint as real Windows drive letters</p>
+  <p class="sub">No sync client. No app registration. Modern OAuth2/MFA. Free &amp; open source.</p>
+
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/Avatorsinc/OneDriveAsADrive">View on GitHub</a>
+    <a class="btn ghost" href="https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest">Download</a>
+  </div>
+
+  <img src="../screenshots/architecture.svg" alt="Architecture: File Explorer drive letters connect through a local WebDAV bridge to Microsoft Graph, reaching OneDrive and SharePoint document libraries.">
+
+  <h2>Install</h2>
+  <pre>winget install onedriveasadrive</pre>
+  <p class="sub">Or grab the Setup.exe from <a href="https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest">Releases</a>, or run <code>npx onedriveasadrive install</code>.</p>
+
+  <h2>Why</h2>
+  <p>Windows' built-in WebDAV client can't authenticate to modern Microsoft&nbsp;365 accounts — basic-auth WebDAV is dead. OneDriveAsADrive runs a local WebDAV server that speaks to the Microsoft Graph API (which handles OAuth2/MFA correctly) and lets Windows map it as a normal network drive letter. It's a modern stand-in for DFS and on-prem file shares, for teams whose files already live in Microsoft&nbsp;365.</p>
+
+  <h2>What you get</h2>
+  <div class="grid">
+    <div class="card"><h3>Real drive letters</h3><p>OneDrive and each SharePoint library as O:\, S:\, T:\ — not a sync folder.</p></div>
+    <div class="card"><h3>No disk duplication</h3><p>Drives are live views of the cloud; nothing is copied to local disk.</p></div>
+    <div class="card"><h3>Modern auth</h3><p>Signs in with your own account via the Windows broker — works where classic WebDAV fails.</p></div>
+    <div class="card"><h3>IT-deployable</h3><p>One machine-wide config file, silent install, Intune/GPO friendly.</p></div>
+  </div>
+
+  <h2>Learn more</h2>
+  <p>
+    <a href="https://github.com/Avatorsinc/OneDriveAsADrive#readme">Full README</a> ·
+    <a href="https://github.com/Avatorsinc/OneDriveAsADrive/blob/main/SECURITY.md">Security</a> ·
+    <a href="https://github.com/Avatorsinc/OneDriveAsADrive/blob/main/docs/admin-consent.md">Admin consent</a> ·
+    <a href="https://github.com/Avatorsinc/OneDriveAsADrive/blob/main/docs/intune-gpo-deployment.md">IT deployment</a> ·
+    <a href="https://github.com/Avatorsinc/OneDriveAsADrive/blob/main/docs/compatibility-matrix.md">Compatibility</a>
+  </p>
+
+  <footer>
+    MIT licensed · Independent open-source project, not affiliated with or endorsed by Microsoft. OneDrive, SharePoint, and Microsoft 365 are trademarks of Microsoft Corporation.
+  </footer>
+</div>
+</body>
+</html>

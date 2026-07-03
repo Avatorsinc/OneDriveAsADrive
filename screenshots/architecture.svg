@@ -1,0 +1,33 @@
+<svg viewBox="0 0 860 420" xmlns="http://www.w3.org/2000/svg" font-family="Inter, Segoe UI, Roboto, sans-serif" role="img">
+<title>OneDriveAsADrive architecture</title>
+<desc>File Explorer drive letters connect through a local WebDAV bridge to the Microsoft Graph API, which reaches OneDrive and SharePoint document libraries.</desc>
+<rect x="0" y="0" width="860" height="420" rx="14" fill="#1e1f22"/>
+<text x="430" y="42" text-anchor="middle" fill="#dfe1e5" font-size="22" font-weight="700">OneDriveAsADrive</text>
+<text x="430" y="66" text-anchor="middle" fill="#868a91" font-size="13">Cloud files as real Windows drive letters — no sync client</text>
+<rect x="255" y="92" width="350" height="56" rx="10" fill="#2b2d30" stroke="#43454a"/>
+<text x="430" y="116" text-anchor="middle" fill="#dfe1e5" font-size="14" font-weight="600">File Explorer</text>
+<rect x="300" y="122" width="46" height="20" rx="5" fill="#3574f022" stroke="#3574f0"/><text x="323" y="136" text-anchor="middle" fill="#6ea8ff" font-size="11" font-weight="600">O:\</text>
+<rect x="356" y="122" width="46" height="20" rx="5" fill="#3574f022" stroke="#3574f0"/><text x="379" y="136" text-anchor="middle" fill="#6ea8ff" font-size="11" font-weight="600">S:\</text>
+<rect x="412" y="122" width="46" height="20" rx="5" fill="#3574f022" stroke="#3574f0"/><text x="435" y="136" text-anchor="middle" fill="#6ea8ff" font-size="11" font-weight="600">T:\</text>
+<path d="M430 148 L430 178" stroke="#5a5d63" stroke-width="2" marker-end="url(#a)"/>
+<text x="446" y="168" fill="#868a91" font-size="10.5">WebDAV over localhost</text>
+<rect x="255" y="180" width="350" height="52" rx="10" fill="#2b2d30" stroke="#3574f0"/>
+<text x="430" y="203" text-anchor="middle" fill="#dfe1e5" font-size="14" font-weight="600">OneDriveAsADrive</text>
+<text x="430" y="221" text-anchor="middle" fill="#6ea8ff" font-size="11">local WebDAV to Graph bridge · per-install secret</text>
+<path d="M430 232 L430 262" stroke="#5a5d63" stroke-width="2" marker-end="url(#a)"/>
+<text x="446" y="252" fill="#868a91" font-size="10.5">OAuth2 / MFA via your account</text>
+<rect x="255" y="264" width="350" height="48" rx="10" fill="#2b2d30" stroke="#43454a"/>
+<text x="430" y="293" text-anchor="middle" fill="#dfe1e5" font-size="14" font-weight="600">Microsoft Graph API</text>
+<path d="M430 312 L430 340" stroke="#5a5d63" stroke-width="2" marker-end="url(#a)"/>
+<rect x="205" y="342" width="205" height="50" rx="10" fill="#2b2d30" stroke="#5fb86566"/>
+<text x="307" y="366" text-anchor="middle" fill="#dfe1e5" font-size="13" font-weight="600">OneDrive</text>
+<text x="307" y="382" text-anchor="middle" fill="#868a91" font-size="10.5">personal or work/school</text>
+<rect x="450" y="342" width="205" height="50" rx="10" fill="#2b2d30" stroke="#5fb86566"/>
+<text x="552" y="366" text-anchor="middle" fill="#dfe1e5" font-size="13" font-weight="600">SharePoint libraries</text>
+<text x="552" y="382" text-anchor="middle" fill="#868a91" font-size="10.5">one drive letter each</text>
+<path d="M380 340 L330 342" stroke="#5a5d63" stroke-width="1.5"/>
+<path d="M480 340 L530 342" stroke="#5a5d63" stroke-width="1.5"/>
+<defs>
+<marker id="a" markerWidth="9" markerHeight="9" refX="5" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#5a5d63"/></marker>
+</defs>
+</svg>
