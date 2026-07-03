@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Installs OneDriveAsADrive — mounts OneDrive and/or SharePoint libraries as local drive letters.
+    Installs OneDriveAsADrive - mounts OneDrive and/or SharePoint libraries as local drive letters.
 .DESCRIPTION
     Downloads the latest release, verifies it, configures the WebClient service for HTTP WebDAV,
     registers a hidden background Scheduled Task that runs at logon, starts the server, and maps
@@ -44,7 +44,7 @@ Write-Host ""
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-# ── 0. Deploy a supplied config.json machine-wide (IT scenario) ────────────────
+# -- 0. Deploy a supplied config.json machine-wide (IT scenario) ----------------
 if ($Config) {
     if (-not (Test-Path $Config)) { Write-Fail "Config file not found: $Config" }
     if (-not $isAdmin) { Write-Fail "-Config deploys to %ProgramData% and needs Administrator." }
@@ -54,7 +54,7 @@ if ($Config) {
     Write-OK "Deployed config to $machineCfgDir\config.json"
 }
 
-# ── 1. Download latest release ───────────────────────────────────────────────
+# -- 1. Download latest release -----------------------------------------------
 Write-Step "Fetching latest release..."
 try {
     $release   = Invoke-RestMethod "https://api.github.com/repos/$RepoOwner/$RepoName/releases/latest"
@@ -70,24 +70,24 @@ Write-Step "Downloading $($release.tag_name)..."
 Invoke-WebRequest $asset.browser_download_url -OutFile $zipPath -UseBasicParsing
 Write-OK "Downloaded to $zipPath"
 
-# ── 1b. Verify SHA256 ─────────────────────────────────────────────────────────
+# -- 1b. Verify SHA256 ---------------------------------------------------------
 # Don't run a self-contained exe fetched off the internet without checking it's the
 # real one. Catches corrupted or tampered-in-transit downloads. (It does NOT protect
-# against a compromised GitHub account — that attacker republishes the hash too.)
+# against a compromised GitHub account - that attacker republishes the hash too.)
 if ($hashAsset) {
     Write-Step "Verifying SHA256..."
     $expected = ((Invoke-WebRequest $hashAsset.browser_download_url -UseBasicParsing).Content -split '\s+')[0].Trim().ToUpper()
     $actual   = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToUpper()
     if ($expected -ne $actual) {
         Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-        Write-Fail "SHA256 mismatch! Expected $expected but got $actual. Aborting — do NOT run this."
+        Write-Fail "SHA256 mismatch! Expected $expected but got $actual. Aborting - do NOT run this."
     }
     Write-OK "SHA256 verified"
 } else {
-    Write-Host "  [WARN] No .sha256 published for this release — skipping integrity check." -ForegroundColor Yellow
+    Write-Host "  [WARN] No .sha256 published for this release - skipping integrity check." -ForegroundColor Yellow
 }
 
-# ── 2. Extract ───────────────────────────────────────────────────────────────
+# -- 2. Extract ---------------------------------------------------------------
 Write-Step "Installing to $InstallDir..."
 # Stop any running instance so we can overwrite the exe.
 Get-Process $RepoName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -101,9 +101,9 @@ Expand-Archive $zipPath $InstallDir -Force
 Remove-Item $zipPath -Force
 Write-OK "Extracted"
 
-# ── 2b. Read effective config (to know which drives to map + the port) ─────────
+# -- 2b. Read effective config (to know which drives to map + the port) ---------
 # The SERVER reads config.json too, so the installer and the exe MUST agree on both the
-# drive letters and the port. If there's no config anywhere, we WRITE one — otherwise the
+# drive letters and the port. If there's no config anywhere, we WRITE one - otherwise the
 # server would fall back to a hardcoded Z: while we mapped -DriveLetter, and every request
 # to the wrong prefix would 404. Config is the single source of truth for the port.
 $cfg = $null
@@ -128,12 +128,12 @@ if (-not $cfg) {
 }
 # Port comes from config so the background task and the drive mappings never disagree.
 if ($PSBoundParameters.ContainsKey('Port') -and [int]$cfg.port -ne $Port) {
-    Write-Host "  [WARN] -Port $Port ignored — config.json says port $($cfg.port). Edit config.json to change it." -ForegroundColor Yellow
+    Write-Host "  [WARN] -Port $Port ignored - config.json says port $($cfg.port). Edit config.json to change it." -ForegroundColor Yellow
 }
 $Port = [int]$cfg.port
 $mounts = @($cfg.mounts)
 
-# ── 3. WebClient service + HTTP auth registry tweak ──────────────────────────
+# -- 3. WebClient service + HTTP auth registry tweak --------------------------
 Write-Step "Configuring WebDAV (requires admin for registry)..."
 if ($isAdmin) {
     $webClientParams = "HKLM:\SYSTEM\CurrentControlSet\Services\WebClient\Parameters"
@@ -143,13 +143,13 @@ if ($isAdmin) {
     Start-Service WebClient -ErrorAction SilentlyContinue
     Write-OK "WebClient configured"
 } else {
-    Write-Host "  [WARN] Not running as admin — skipping registry tweak." -ForegroundColor Yellow
+    Write-Host "  [WARN] Not running as admin - skipping registry tweak." -ForegroundColor Yellow
     Write-Host "         Run this script as Administrator to enable HTTP WebDAV properly." -ForegroundColor DarkYellow
 }
 
-# ── 4. Background Scheduled Task (hidden, runs at each logon as this user) ──────
+# -- 4. Background Scheduled Task (hidden, runs at each logon as this user) ------
 # A Scheduled Task beats a Startup shortcut: it's harder to disable by accident, can
-# restart on crash, and runs hidden. The exe is a WinExe so there's no window anyway —
+# restart on crash, and runs hidden. The exe is a WinExe so there's no window anyway -
 # the user never notices it. Admins debug with:  OneDriveAsADrive.exe --console
 Write-Step "Registering background task..."
 try {
@@ -163,7 +163,7 @@ try {
                     -ExecutionTimeLimit ([TimeSpan]::Zero)
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal `
         -Settings $settings -Description "OneDriveAsADrive WebDAV bridge (background)" -Force | Out-Null
-    Write-OK "Task registered — starts hidden at every logon"
+    Write-OK "Task registered - starts hidden at every logon"
 } catch {
     # Fall back to a plain Startup shortcut if task registration is blocked.
     Write-Host "  [WARN] Scheduled Task failed ($_). Falling back to Startup shortcut." -ForegroundColor Yellow
@@ -178,14 +178,14 @@ try {
     Write-OK "Startup shortcut created"
 }
 
-# ── 5. Start the server now (hidden) ──────────────────────────────────────────
+# -- 5. Start the server now (hidden) ------------------------------------------
 Write-Step "Starting OneDriveAsADrive..."
 $proc = Start-Process $ExePath -WindowStyle Hidden -PassThru
 Start-Sleep -Seconds 4
 if ($proc.HasExited) { Write-Fail "Server exited unexpectedly. Run '$ExePath --console' to see why." }
 Write-OK "Server running in background (PID $($proc.Id))"
 
-# ── 6. Read the per-install secret ────────────────────────────────────────────
+# -- 6. Read the per-install secret --------------------------------------------
 # The server generates a random secret on first start and writes it here. No secret = no drive.
 $secretPath = "$InstallDir\.secret"
 $secret = $null
@@ -195,20 +195,24 @@ for ($i = 0; $i -lt 10 -and -not $secret; $i++) {
 }
 if (-not $secret) { Write-Fail "Server never wrote its secret file ($secretPath). Run '$ExePath --console'." }
 
-# ── 6b. Migration: clear stale v1.1-style mappings to the server ROOT ──────────
+# -- 6b. Migration: clear stale v1.1-style mappings to the server ROOT ----------
 # v1.1 mapped drives straight to http://localhost:PORT/ (no prefix). v1.2 serves files only
 # under /letter/ prefixes, so those old root mappings now 404 into a dead drive. Find and
 # delete any drive pointing at this server's root (shown as \\localhost@PORT\DavWWWRoot).
 try {
+    # NB: build the pattern from a SINGLE-quoted literal + concat. A char class like [A-Za-z]
+    # inside a double-quoted, $-interpolated string makes Windows PowerShell 5.1 misparse it as
+    # a type literal ("Missing ] at end of attribute"). 5.1 is what the npx installer runs under.
+    $rootPat = '([A-Za-z]):\s+\\\\localhost@' + $Port + '\\DavWWWRoot\b'
     foreach ($line in (net use 2>$null)) {
-        if ($line -match "([A-Za-z]):\s+\\\\localhost@$Port\\DavWWWRoot\b") {
+        if ($line -match $rootPat) {
             Write-Host "  [migrate] Removing stale root mapping $($matches[1]): (pre-v1.2)" -ForegroundColor DarkYellow
             net use "$($matches[1]):" /delete /y | Out-Null
         }
     }
 } catch { }
 
-# ── 7. Map every configured drive ─────────────────────────────────────────────
+# -- 7. Map every configured drive ---------------------------------------------
 foreach ($m in $mounts) {
     $letter = "$($m.letter)".ToUpper()
     $drive  = "${letter}:"
