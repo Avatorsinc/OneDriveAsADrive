@@ -60,10 +60,11 @@ jobs:
           draft: false
           prerelease: false
 
-      # Publish a copy of the npm package to GitHub Packages so it shows up in the repo's
-      # "Packages" sidebar. GitHub Packages requires an owner-scoped name, so we rename to
-      # @avatorsinc/... just for this publish — the canonical unscoped "onedriveasadrive"
-      # on npmjs.com is published manually and stays the name users npx.
+      # Publish a copy of the npm package to GitHub Packages so the repo's "Packages"
+      # sidebar has something to show off. GitHub insists on an owner-scoped name, so we
+      # wear the @avatorsinc/ costume just for this publish - the real unscoped
+      # "onedriveasadrive" on npmjs.com is the one people npx. Same guy, different outfit.
+      # Like Peter in the chicken suit.
       - name: Setup Node (GitHub Packages registry)
         uses: actions/setup-node@v4
         with:

@@ -77,9 +77,10 @@ Write-OK "Downloaded to $zipPath"
 if ($hashAsset) {
     Write-Step "Verifying SHA256..."
     $expected = ((Invoke-WebRequest $hashAsset.browser_download_url -UseBasicParsing).Content -split '\s+')[0].Trim().ToUpper()
-    # Get-FileHash can vanish when a damaged PSModulePath hides the Utility module
-    # (e.g. PowerShell 7 paths leaking into a 5.1 child process). certutil.exe is a
-    # plain executable that always exists, so fall back to it.
+    # Get-FileHash can straight-up vanish when a mangled PSModulePath hides the Utility
+    # module (PowerShell 7 paths leaking into a 5.1 child - it happens, we have SEEN things).
+    # certutil.exe is a crusty old exe that has shipped with Windows since forever, so when
+    # the fancy cmdlet ghosts us, the old guy steps up. Roadhouse.
     if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) {
         $actual = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToUpper()
     } else {

@@ -90,12 +90,12 @@ function run(cmd, args, opts = {}) {
   return spawnSync(cmd, args, { stdio: 'inherit', ...opts });
 }
 
-// When this CLI is run from PowerShell 7, pwsh's PSModulePath (which includes
-// "...\PowerShell\7\Modules") leaks through Node into the Windows PowerShell 5.1 child.
-// 5.1 then prefers PS7's higher-versioned Utility module, can't load it (.NET Core), and
-// script-function cmdlets like Get-FileHash silently vanish. pwsh scrubs this when it
-// spawns powershell.exe itself, but not through an intermediary like us — so we scrub.
-// With the variable absent, 5.1 rebuilds its own clean default module path.
+// PowerShell 7 stuffs its own module path ("...\PowerShell\7\Modules") into the environment.
+// Spawn Windows PowerShell 5.1 through Node and it inherits that, spots PS7's newer Utility
+// module, tries to load it, chokes on the .NET Core bits, and suddenly Get-FileHash just...
+// doesn't exist. Like Meg at a family photo. pwsh cleans this up when IT launches 5.1
+// directly, but not through a middleman like us. So we pat the environment down at the door,
+// bouncer-style: no PSModulePath gets in, and 5.1 rebuilds its own clean defaults. Giggity.
 function envWithoutPSModulePath() {
   const env = { ...process.env };
   for (const k of Object.keys(env)) {
