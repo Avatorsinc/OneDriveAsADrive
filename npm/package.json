@@ -1,6 +1,6 @@
 {
   "name": "onedriveasadrive",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Mount OneDrive and SharePoint document libraries as Windows drive letters. No-code installer/configurator for the OneDriveAsADrive WebDAV bridge.",
   "bin": {
     "onedriveasadrive": "bin/cli.js"

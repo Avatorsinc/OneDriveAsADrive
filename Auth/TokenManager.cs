@@ -27,7 +27,8 @@ public class TokenManager
     private readonly string[] _scopes;
 
     // Optional account (UPN/email) to pin which identity we sign in as, when the machine has
-    // more than one. Null = take the default/first account.
+    // more than one. Null = take the default/first account. Stops us walking home with the
+    // wrong family, Griffin-style.
     private readonly string? _account;
 
     private readonly IPublicClientApplication _app;

@@ -44,8 +44,9 @@ public sealed class MountConfig
 
     // Optional: the account (UPN / email) to sign in as, e.g. "you@contoso.com". On a machine
     // with several signed-in Microsoft accounts, this pins which identity every mount uses —
-    // otherwise we take whichever the broker cached first, which may be the wrong one. Leave
-    // null to accept the default account.
+    // otherwise we grab whichever the broker cached first, which is like letting Peter pick the
+    // designated driver: technically an account, rarely the one you wanted. Leave null to accept
+    // the default.
     public string? Account { get; set; }
 
     // Where the config was loaded from (or null if we fell back to defaults). For logging.
