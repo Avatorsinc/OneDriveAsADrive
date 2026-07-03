@@ -58,7 +58,7 @@ OneDriveAsADrive signs in through the **Microsoft Graph Command Line Tools** pub
 **Scopes depend on what you mount:**
 
 - **OneDrive only** → `Files.ReadWrite` (delegated) — read/write access to **your own** OneDrive. Narrow on purpose: personal accounts self-consent and it rarely trips tenant restrictions.
-- **Any SharePoint library** → the app widens to `Files.ReadWrite.All` + `Sites.Read.All`. These are what's required to reach document libraries you don't own, and they **usually need a one-time tenant admin consent**. There's no narrower scope that can read a shared SharePoint library — that's a Microsoft constraint, not a choice. The app only requests these when your config actually contains a SharePoint mount.
+- **Any SharePoint library** → the app widens to `Files.ReadWrite.All` + `Sites.Read.All`. These are what's required to reach document libraries you don't own, and they **usually need a one-time tenant admin consent**. There's no narrower scope in this **no-app-registration** flow (riding Microsoft's public Graph CLI client) — Graph *does* offer resource-scoped/selected permissions, but those require registering your own app and admin setup, which this project deliberately avoids. The app only requests these when your config actually contains a SharePoint mount.
 
 ### Personal OneDrive — works out of the box
 
@@ -134,6 +134,8 @@ Mount as many OneDrive and SharePoint document libraries as you like — each ge
 - **Per-user:** `%LOCALAPPDATA%\OneDriveAsADrive\config.json`.
 
 Machine-wide wins if both exist. No config at all → a single OneDrive on `Z:` (out-of-the-box behaviour).
+
+> ⚠️ **Not a file server — no multi-user locking.** This maps *your own* view of the cloud; it does **not** provide network-share semantics. There's no cross-user file locking, so two people editing the same file outside Office's own co-authoring is last-write-wins. Treat it as "my cloud files as a drive letter," not as a replacement for SMB/DFS locking behaviour your apps might assume.
 
 > **One identity per instance.** Every mount in a running instance signs in as the **same** Microsoft account. A work/school account can serve its own OneDrive **and** every SharePoint site it's allowed to reach — all at once. What you *can't* do is mix a **personal** OneDrive (e.g. `you@outlook.com`) with a **work** SharePoint (`you@tenant.onmicrosoft.com`) in one instance: those are two separate identities and no single token spans both. Sign in with the one account that can reach everything you want mounted.
 

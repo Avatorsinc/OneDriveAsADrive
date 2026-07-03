@@ -170,11 +170,33 @@ async function cmdInstall(flags) {
   try { await download(url, ps1); } catch (e) { die(`Could not download installer: ${e.message}`); }
   ok('Installer downloaded');
 
-  const psArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1];
-  if (flags.config) psArgs.push('-Config', String(flags.config));
-  if (flags.port) psArgs.push('-Port', String(flags.port));
-  log('Running installer (a UAC / admin prompt may appear)...');
-  const r = run('powershell', psArgs, { env: envWithoutPSModulePath() });
+  // The installer needs admin for the HKLM WebClient/BasicAuthLevel tweak - without it the
+  // registry step silently skips and drive mapping fails later with a baffling 1244. So if
+  // we're not already elevated, relaunch install.ps1 through Start-Process -Verb RunAs, which
+  // fires the real UAC prompt (the one we always promised but never actually triggered).
+  const psArgList = ['-File', ps1];
+  if (flags.config) psArgList.push('-Config', String(flags.config));
+  if (flags.port) psArgList.push('-Port', String(flags.port));
+
+  const isAdmin = spawnSync('powershell', ['-NoProfile', '-Command',
+    '[bool]([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)'],
+    { encoding: 'utf8', env: envWithoutPSModulePath() }).stdout.trim() === 'True';
+
+  let r;
+  if (isAdmin) {
+    log('Running installer...');
+    r = run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', ...psArgList], { env: envWithoutPSModulePath() });
+  } else {
+    // Build a Start-Process that elevates a child powershell running the installer. -Wait so
+    // we block until it finishes; the elevated window is where its output and the sign-in show.
+    log('Requesting administrator rights (approve the UAC prompt)...');
+    const inner = ['-NoProfile', '-ExecutionPolicy', 'Bypass', ...psArgList]
+      .map(a => `'${String(a).replace(/'/g, "''")}'`).join(',');
+    r = run('powershell', ['-NoProfile', '-Command',
+      `Start-Process powershell -Verb RunAs -Wait -ArgumentList ${inner}`],
+      { env: envWithoutPSModulePath() });
+    if (r.status !== 0) warn('If the UAC prompt was declined, re-run this from an Administrator terminal.');
+  }
   process.exit(r.status || 0);
 }
 

@@ -93,8 +93,13 @@ catch (Exception ex)
 
 app.UseMiddleware<WebDavMiddleware>();
 
-// Log how to mount every configured drive, secret and all. Once per startup.
+// Log how to mount every configured drive. Once per startup.
 // Like Quagmire announcing his arrival. Giggity.
+//
+// The persistent app.log is a support artifact people paste into issues, so we NEVER write
+// the real secret there - it goes to the file redacted as <secret>. The genuine net use
+// line (secret and all) prints to the CONSOLE only, which exists solely when a human ran
+// --console/--debug on purpose. Loose logs sink ships; the secret lives in .secret anyway.
 var secret = app.Services.GetRequiredService<ServerSecret>();
 var listenUrl = (builder.WebHost.GetSetting("urls") ?? $"http://localhost:{config.Port}").TrimEnd('/');
 app.Logger.LogInformation("WebDAV listening on {Url} — everybody, everybody, everybody!", listenUrl);
@@ -102,9 +107,12 @@ app.Logger.LogInformation("Secret stored at {Path}", secret.FilePath);
 foreach (var m in config.Mounts)
 {
     var mountUrl = $"{listenUrl}{m.Prefix}/";
-    var netUse = $"net use {m.Letter}: {mountUrl} /user:{secret.Username} {secret.Value} /persistent:yes";
+    var redacted = $"net use {m.Letter}: {mountUrl} /user:{secret.Username} <secret> /persistent:yes";
     app.Logger.LogInformation("Mount {Letter}: ({Name}) -> {Url}  |  {NetUse}",
-        m.Letter, m.DisplayName, mountUrl, netUse);
+        m.Letter, m.DisplayName, mountUrl, redacted);
+    // Real, copy-pasteable line only to the on-purpose console - never the file log.
+    if (showConsole)
+        Console.WriteLine($"  {m.Letter}: -> net use {m.Letter}: {mountUrl} /user:{secret.Username} {secret.Value} /persistent:yes");
 }
 app.Logger.LogInformation("Unmount with: net use <Letter>: /delete");
 
