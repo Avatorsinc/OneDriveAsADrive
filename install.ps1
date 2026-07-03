@@ -76,7 +76,12 @@ Write-OK "Downloaded to $zipPath"
 # against a compromised GitHub account - that attacker republishes the hash too.)
 if ($hashAsset) {
     Write-Step "Verifying SHA256..."
-    $expected = ((Invoke-WebRequest $hashAsset.browser_download_url -UseBasicParsing).Content -split '\s+')[0].Trim().ToUpper()
+    # GitHub serves .sha256 assets as octet-stream, so PS 5.1 hands us Content as raw
+    # BYTES, not text. Split that and you compare against "70" (the ASCII code for 'F') -
+    # the world's most confident wrong answer. Decode to a string first. We're not animals.
+    $rawHash = (Invoke-WebRequest $hashAsset.browser_download_url -UseBasicParsing).Content
+    if ($rawHash -is [byte[]]) { $rawHash = [System.Text.Encoding]::ASCII.GetString($rawHash) }
+    $expected = ("$rawHash" -split '\s+')[0].Trim().ToUpper()
     # Get-FileHash can straight-up vanish when a mangled PSModulePath hides the Utility
     # module (PowerShell 7 paths leaking into a 5.1 child - it happens, we have SEEN things).
     # certutil.exe is a crusty old exe that has shipped with Windows since forever, so when
