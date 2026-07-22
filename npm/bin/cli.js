@@ -65,7 +65,7 @@ function parseFlags(argv) {
 function configPathFor(flags) { return flags.machine ? machineConfig : userConfig; }
 
 function readConfig(p) {
-  if (!fs.existsSync(p)) return { port: 8080, mounts: [] };
+  if (!fs.existsSync(p)) return { port: 40323, mounts: [] };
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
   catch { die(`Malformed config: ${p}`); }
 }
@@ -77,7 +77,7 @@ function writeConfig(p, cfg) {
 function effectiveConfig() {
   if (fs.existsSync(machineConfig)) return { path: machineConfig, cfg: readConfig(machineConfig) };
   if (fs.existsSync(userConfig)) return { path: userConfig, cfg: readConfig(userConfig) };
-  return { path: null, cfg: { port: 8080, mounts: [{ letter: 'Z', type: 'onedrive', name: 'OneDrive' }] } };
+  return { path: null, cfg: { port: 40323, mounts: [{ letter: 'Z', type: 'onedrive', name: 'OneDrive' }] } };
 }
 
 function readSecret() {
@@ -103,9 +103,9 @@ function envWithoutPSModulePath() {
   }
   return env;
 }
-// Explorer shows WebDAV drives as the raw "\\localhost@8080\s" path unless we set a friendly
+// Explorer shows WebDAV drives as the raw "\\localhost@40323\s" path unless we set a friendly
 // label. The MountPoints2 key for \\localhost@PORT\x is ##localhost@PORT#x; _LabelFromReg is
-// what Explorer displays, so "S: (Finance)" instead of "S: (\\localhost@8080)".
+// what Explorer displays, so "S: (Finance)" instead of "S: (\\localhost@40323)".
 function mountPointKey(letter, port) {
   return `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2\\##localhost@${port}#${letter.toLowerCase()}`;
 }
@@ -211,7 +211,7 @@ function cmdAdd(flags) {
   const p = configPathFor(flags);
   const cfg = readConfig(p);
   if (!cfg.mounts) cfg.mounts = [];
-  if (!cfg.port) cfg.port = Number(flags.port) || effectiveConfig().cfg.port || 8080;
+  if (!cfg.port) cfg.port = Number(flags.port) || effectiveConfig().cfg.port || 40323;
 
   cfg.mounts = cfg.mounts.filter((m) => (m.letter || '').toLowerCase() !== letter.toLowerCase());
   const mount = { letter: letter.toUpperCase(), type };
@@ -258,7 +258,7 @@ function cmdRemove(pos, flags) {
 function cmdList() {
   const { path: p, cfg } = effectiveConfig();
   console.log(`\n  Config: ${C.cyan}${p || 'defaults (single OneDrive on Z:)'}${C.reset}`);
-  console.log(`  Port:   ${cfg.port || 8080}\n`);
+  console.log(`  Port:   ${cfg.port || 40323}\n`);
   for (const m of cfg.mounts) {
     const detail = m.type === 'sharepoint'
       ? `sharepoint  ${m.site}${m.library ? ' / ' + m.library : ''}`

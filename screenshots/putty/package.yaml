@@ -1,0 +1,41 @@
+id: putty
+displayName: PuTTY
+publisher: Simon Tatham
+version: '0.83'
+packageType: msi
+architecture: x64
+installContext: system
+timeoutMinutes: 15
+
+source:
+  sourceFolder: source
+  setupFile: putty-64bit-0.83-installer.msi
+
+# Public installer — fetched and hash-verified at build time, so no binary in git.
+downloads:
+  - url: https://the.earth.li/~sgtatham/putty/0.83/w64/putty-64bit-0.83-installer.msi
+    sha256: AA8E5036D973688F1E8622FBE9AB22E037346E0DEF0197BF5E7CDF37DA4E223D
+    fileName: putty-64bit-0.83-installer.msi
+
+commands:
+  install: 'msiexec.exe /i "putty-64bit-0.83-installer.msi" /qn /norestart'
+  uninstall: 'msiexec.exe /x "{ED41CD4E-33BB-400C-AB20-B09388DC83EF}" /qn /norestart'
+
+detection:
+  type: msi
+  productCode: '{ED41CD4E-33BB-400C-AB20-B09388DC83EF}'
+  minVersion: '0.83.0.0'
+
+requirements:
+  minOS: Windows 10 22H2
+  architecture: x64
+
+returnCodes:
+  success: [0]
+  softReboot: [3010]
+  hardReboot: [1641]
+  retry: [1618]
+
+publish:
+  description: PuTTY SSH and telnet client (x64 MSI).
+  owner: Endpoint Engineering

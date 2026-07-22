@@ -6,7 +6,7 @@ Map **OneDrive** — personal *or* work/school — **and SharePoint document lib
 
 > **Personal OneDrive works out of the box.** Work/school and SharePoint work too, but they use broader Graph permissions that locked-down tenants gate behind a one-time admin consent — see [Accounts & Access](#accounts--access).
 
-> ⚠️ **Upgrading from v1.1.x?** v1.2 changed the drive URLs: drives are now served under a per-letter prefix (`http://localhost:8080/z/`, not `/`). Your existing mapped drive will stop working the moment the new version starts. **Re-run the installer** — it detects and removes the stale mapping and remaps every drive under the new URLs.
+> ⚠️ **Upgrading from v1.1.x?** v1.2 changed the drive URLs: drives are now served under a per-letter prefix (`http://localhost:40323/z/`, not `/`). Your existing mapped drive will stop working the moment the new version starts. **Re-run the installer** — it detects and removes the stale mapping and remaps every drive under the new URLs.
 
 [![GitHub release](https://img.shields.io/github/v/release/Avatorsinc/OneDriveAsADrive)](https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest)
 [![npm](https://img.shields.io/npm/v/onedriveasadrive)](https://www.npmjs.com/package/onedriveasadrive)
@@ -44,7 +44,7 @@ Windows' built-in WebDAV client fails with modern Microsoft 365 accounts because
 
 ![Architecture: File Explorer drive letters to a local WebDAV bridge to Microsoft Graph to OneDrive and SharePoint](screenshots/architecture.svg)
 
-Each mount is served under its own URL prefix — `http://localhost:8080/o/`, `/s/`, `/t/` — so a single background process backs every drive letter.
+Each mount is served under its own URL prefix — `http://localhost:40323/o/`, `/s/`, `/t/` — so a single background process backs every drive letter.
 
 ---
 
@@ -138,7 +138,7 @@ To mount SharePoint or multiple libraries, drop a [`config.json`](#sharepoint--m
    The console prints the exact `net use` command **including the auth secret** it generated. Copy that line. (The secret is also always in `%LOCALAPPDATA%\OneDriveAsADrive\.secret`.)
 5. Map the drive (in a separate PowerShell window) using the secret from step 4. **Note the `/z/` path** — each drive lives under its own prefix (the lower-cased drive letter):
    ```powershell
-   net use Z: http://localhost:8080/z/ /user:onedrive <secret> /persistent:yes
+   net use Z: http://localhost:40323/z/ /user:onedrive <secret> /persistent:yes
    ```
    > The server requires this per-install secret on **every** request (HTTP Basic auth), so a drive mapped without it gets a 401. The secret lives in `%LOCALAPPDATA%\OneDriveAsADrive\.secret`. The exact `net use` line for every configured drive is printed on startup (run with `--console` to see it).
 
@@ -159,7 +159,7 @@ Machine-wide wins if both exist. No config at all → a single OneDrive on `Z:` 
 
 ```json
 {
-  "port": 8080,
+  "port": 40323,
   "account": "you@contoso.com",
   "mounts": [
     { "letter": "O", "type": "onedrive", "name": "My OneDrive" },
@@ -174,7 +174,7 @@ Machine-wide wins if both exist. No config at all → a single OneDrive on `Z:` 
 
 | Field | Applies to | Notes |
 |-------|-----------|-------|
-| `port` | top-level | Local port the bridge listens on (default `8080`). |
+| `port` | top-level | Local port the bridge listens on (default `40323`). |
 | `account` | top-level *(optional)* | UPN/email to sign in as, e.g. `you@contoso.com`. Pins the identity on a machine with **several** signed-in Microsoft accounts. Omit to use the default account. |
 | `letter` | all | Drive letter **and** URL prefix (`S` → served at `/s/`). Must be unique. |
 | `type` | all | `onedrive` or `sharepoint`. |
@@ -240,7 +240,7 @@ Admins/troubleshooters can run it with a **visible console** to watch it live (i
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--urls` | from `config.json` (`http://localhost:8080`) | Override the listening port |
+| `--urls` | from `config.json` (`http://localhost:40323`) | Override the listening port |
 | `--console` / `--debug` | *(off)* | Pop a console window with live logs (background otherwise) |
 
 Change the port for everything in `config.json` (`"port": 9090`), or override at launch:

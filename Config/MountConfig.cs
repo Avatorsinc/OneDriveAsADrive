@@ -39,7 +39,10 @@ public sealed class Mount
 // %LOCALAPPDATA% (per-user). No config at all? We default to a single OneDrive on Z:.
 public sealed class MountConfig
 {
-    public int Port { get; set; } = 8080;
+    // 40323, deliberately obscure. The reflexive 8080 is a warzone — Tomcat, Jenkins, dev
+    // servers and proxies all squat on it, so it collides constantly. A quiet high port in
+    // the registered range (nothing hands out 40323) means the drive just works out of the box.
+    public int Port { get; set; } = 40323;
     public List<Mount> Mounts { get; set; } = [];
 
     // Optional: the account (UPN / email) to sign in as, e.g. "you@contoso.com". On a machine
@@ -123,7 +126,7 @@ public sealed class MountConfig
             kept.Add(m);
         }
         Mounts = kept;
-        if (Port is <= 0 or > 65535) Port = 8080;
+        if (Port is <= 0 or > 65535) Port = 40323;
     }
 
     public bool AnySharePoint => Mounts.Any(m => m.IsSharePoint);

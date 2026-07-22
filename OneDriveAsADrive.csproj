@@ -7,6 +7,11 @@
     <!-- WinExe = no console window by default, so it runs invisibly in the background.
          Pass the console flag to pop a window for debugging (see NativeConsole in Program.cs). -->
     <OutputType>WinExe</OutputType>
+    <!-- Stamp a real version so the exe doesn't report 1.0.0.0 (as a crash report once did).
+         CI overrides this with -p:Version=x.y.z from the git tag; this is the local fallback. -->
+    <Version>1.3.3</Version>
+    <Company>Avatorsinc</Company>
+    <Product>OneDriveAsADrive</Product>
   </PropertyGroup>
 
   <ItemGroup>

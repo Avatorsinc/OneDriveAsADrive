@@ -32,7 +32,7 @@ public class WebDavMiddleware(
     public async Task InvokeAsync(HttpContext ctx)
     {
         // SECURITY #0: the packet must physically come from this machine. The Host check
-        // below stops DNS rebinding, but if someone launches with --urls http://*:8080 we're
+        // below stops DNS rebinding, but if someone launches with --urls http://*:40323 we're
         // reachable off-box, and a remote client can just send "Host: localhost" to sail past
         // it. So first: if the remote IP isn't loopback, the door doesn't even open. Belt and
         // suspenders, because the thing behind it holds your Graph token.
@@ -422,7 +422,7 @@ public class WebDavMiddleware(
         var dest = ctx.Request.Headers["Destination"].FirstOrDefault();
         if (string.IsNullOrEmpty(dest)) { ctx.Response.StatusCode = 400; return; }
 
-        // Strip the "http://localhost:8080" prefix, keep just the path part.
+        // Strip the "http://localhost:40323" prefix, keep just the path part.
         var destFull = HttpUtility.UrlDecode(new Uri(dest).AbsolutePath);
         var (destMount, destRel) = ResolveMount(destFull);
 

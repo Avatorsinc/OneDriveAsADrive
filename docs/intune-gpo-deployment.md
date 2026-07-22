@@ -15,7 +15,7 @@ Machine-wide config (`%ProgramData%`) wins over per-user (`%LOCALAPPDATA%`). No 
 
 ```json
 {
-  "port": 8080,
+  "port": 40323,
   "account": "user@contoso.com",
   "mounts": [
     { "letter": "O", "type": "onedrive", "name": "OneDrive" },

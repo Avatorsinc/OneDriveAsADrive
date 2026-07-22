@@ -23,7 +23,9 @@ jobs:
           dotnet-version: '9.0.x'
 
       - name: Publish single-file exe
-        run: dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o publish/
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:Version=$version -o publish/
 
       - name: Create release zip
         run: Compress-Archive -Path publish/OneDriveAsADrive.exe, install.ps1, config.example.json -DestinationPath OneDriveAsADrive-${{ github.ref_name }}-win-x64.zip

@@ -9,7 +9,7 @@
 .PARAMETER DriveLetter
     Drive letter for the default single-OneDrive mount when no config.json is present (default: Z).
 .PARAMETER Port
-    Local port for the WebDAV server (default: 8080, or the port from config.json).
+    Local port for the WebDAV server (default: 40323, or the port from config.json).
 .PARAMETER Config
     Optional path to a config.json to deploy machine-wide (to %ProgramData%). Requires admin.
     Use this to push SharePoint + OneDrive mounts to a machine (IT deployment).
@@ -23,7 +23,7 @@
 #>
 param(
     [string]$DriveLetter = "Z",
-    [int]$Port = 8080,
+    [int]$Port = 40323,
     [string]$Config,
     [string]$LocalExe,
     # Unattended mode (winget /VERYSILENT, IT push). Skips the interactive first-run sign-in
@@ -285,7 +285,7 @@ foreach ($m in $mounts) {
         Write-Host "         Manual: net use $drive $url /user:onedrive <secret>  (secret in $secretPath)" -ForegroundColor DarkYellow
     } else {
         Write-OK "Drive $drive mapped"
-        # Friendly Explorer label: without this the drive shows as "\\localhost@8080\s".
+        # Friendly Explorer label: without this the drive shows as "\\localhost@40323\s".
         # MountPoints2 key for \\localhost@PORT\x is ##localhost@PORT#x; _LabelFromReg is
         # what Explorer displays, so you get "S: (Finance)" instead of the raw path.
         try {

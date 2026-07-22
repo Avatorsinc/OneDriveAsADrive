@@ -16,8 +16,8 @@ schtasks /Delete /TN $RepoName /F 2>$null | Out-Null
 # remembers drives to reconnect at logon. Elevation reaches these (same user hive), so
 # even from the elevated uninstaller the drives die for good at next logon.
 #
-# GOTCHA (this cost us a release): net use DISPLAYS the mapping as "\\localhost@8080\z",
-# but the RemotePath actually STORED here is the literal URL "http://localhost:8080/z/".
+# GOTCHA (this cost us a release): net use DISPLAYS the mapping as "\\localhost@40323\z",
+# but the RemotePath actually STORED here is the literal URL "http://localhost:40323/z/".
 # Matching the pretty display form finds nothing. Match "localhost" and be done. Roadhouse.
 Get-ChildItem "HKCU:\Network" -ErrorAction SilentlyContinue | ForEach-Object {
     $remote = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).RemotePath

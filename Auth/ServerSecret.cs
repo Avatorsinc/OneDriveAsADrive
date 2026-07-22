@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 namespace OneDriveAsADrive.Auth;
 
 // A per-install random password. Because binding to localhost is NOT a security boundary —
-// any other user or process on the machine can also reach localhost:8080. Without this,
+// any other user or process on the machine can also reach localhost:40323. Without this,
 // the server is basically Peter leaving the front door open with a sign that says "TV inside."
 //
 // The secret lives in %LOCALAPPDATA%\OneDriveAsADrive\.secret — readable only by the current

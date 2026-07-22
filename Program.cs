@@ -50,6 +50,20 @@ if (args.Any(a => a.Equals("--login", StringComparison.OrdinalIgnoreCase)))
 
 if (showConsole) NativeConsole.Ensure();
 
+// ── Single instance ───────────────────────────────────────────────────────────
+// Only ONE server can hold 127.0.0.1:PORT. The installer starts it AND the logon task
+// starts it - two copies racing for the port is how the moderator's manual validation
+// crashed with an unhandled "address already in use". So: grab a named mutex keyed to the
+// port; if another copy already owns it, our job's being done - bow out quietly with exit 0
+// instead of an APPCRASH. A gunfight over one parking spot helps nobody. Roadhouse.
+using var instanceLock = new System.Threading.Mutex(true, $"Local\\OneDriveAsADrive_{config.Port}", out var isPrimary);
+if (!isPrimary)
+{
+    new FileLoggerProvider(minLevel: minLevel).CreateLogger("Startup")
+        .LogInformation("Another instance already owns port {Port}. Nothing to do; exiting.", config.Port);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddMemoryCache(); // so Explorer's clingy re-probing hits RAM, not Redmond
@@ -118,7 +132,17 @@ foreach (var m in config.Mounts)
 }
 app.Logger.LogInformation("Unmount with: net use <Letter>: /delete");
 
-await app.RunAsync();
+// Safety net: the mutex above catches OUR own double-start, but something ELSE could be
+// squatting on the port. If the bind fails, don't crash - log it and leave with exit 0.
+// A dead process is worse than a polite one that noticed the seat was taken.
+try
+{
+    await app.RunAsync();
+}
+catch (IOException ex) when (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase))
+{
+    app.Logger.LogWarning("Port {Port} is already in use — another server is running. Exiting cleanly.", config.Port);
+}
 
 // Pops a real console window for a WinExe process when --console is passed, so admins can
 // watch the logs live. Without this, a WinExe has nowhere to print.

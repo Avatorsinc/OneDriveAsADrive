@@ -8,7 +8,7 @@ Windows' built-in WebDAV redirector can't do modern OAuth2/MFA auth, so it can't
 
 ## Controls
 
-- **Loopback binding + client-IP check.** The server binds to `localhost`. The middleware also rejects any request whose remote IP isn't a loopback address, so even a misconfiguration like `--urls http://*:8080` won't expose it off-box.
+- **Loopback binding + client-IP check.** The server binds to `localhost`. The middleware also rejects any request whose remote IP isn't a loopback address, so even a misconfiguration like `--urls http://*:40323` won't expose it off-box.
 - **Host-header check (anti-DNS-rebinding).** Requests whose `Host` isn't a loopback name are refused. This closes the DNS-rebinding vector where a malicious website rebinds its domain to `127.0.0.1` and tries to reach the server through your browser.
 - **Per-install secret (HTTP Basic auth).** A 32-byte cryptographically random secret is generated on first run and stored in `%LOCALAPPDATA%\OneDriveAsADrive\.secret`. Every request must present it (constant-time compared). This stops other local users or low-privilege processes on a shared machine from reaching your files. It's why the installer sets `BasicAuthLevel=2` — so the Windows WebDAV client will send Basic credentials over loopback HTTP.
 - **Least-privilege Graph scopes.** OneDrive-only setups request `Files.ReadWrite` (your own drive). SharePoint mounts widen to `Files.ReadWrite.All` + `Sites.Read.All` **only when a SharePoint mount is configured**, and those typically require a one-time tenant admin consent.
