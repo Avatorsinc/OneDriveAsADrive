@@ -85,36 +85,105 @@ public class TokenManager
     // than prompting. The ONLY place a window exists is the `--login` step, which flips this on.
     public bool AllowInteractive { get; set; }
 
+    // The account we most recently got a real token for. A corporate laptop can easily have four
+    // identities signed in to Windows, and only one of them can reach the files we want; once we
+    // know which, we go straight there instead of re-failing our way down the list every request.
+    private IAccount? _lastGood;
+
+    // Who we can ACTUALLY authenticate as, for the settings UI's status line.
+    //
+    // This used to report accounts[0], which on a multi-account machine is a coin flip and was
+    // cheerfully naming a work account that could not produce a token while a perfectly good
+    // personal one sat behind it. A status line that names an account you can't use is worse than
+    // no status line - it sends people off reinstalling things that were never broken.
+    public async Task<string?> GetSignedInAccountAsync()
+    {
+        try
+        {
+            // The server warms up auth on startup, so this is normally already answered and free.
+            if (_lastGood != null) return _lastGood.Username;
+            var result = await TrySilentAsync(await CandidatesAsync());
+            return result?.Account?.Username;
+        }
+        catch
+        {
+            // Broker unavailable or cache unreadable — report "not signed in" rather than throwing
+            // into a page render.
+            return null;
+        }
+    }
+
+    // Which accounts are worth trying, best first.
+    private async Task<List<IAccount>> CandidatesAsync()
+    {
+        var accounts = (await _app.GetAccountsAsync()).ToList();
+
+        // A pinned account is a decision, not a hint: try it and nothing else, so a typo surfaces
+        // as "that account can't sign in" instead of silently mounting somebody else's OneDrive.
+        if (_account != null)
+            return accounts
+                .Where(a => string.Equals(a.Username, _account, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        var ordered = new List<IAccount>();
+        var known = _lastGood?.HomeAccountId?.Identifier;
+        if (known != null)
+            ordered.AddRange(accounts.Where(a => a.HomeAccountId?.Identifier == known));
+        ordered.AddRange(accounts.Where(a => a.HomeAccountId?.Identifier != known));
+        return ordered;
+    }
+
+    // Walk the candidates and take the first token anyone will give us.
+    //
+    // The old code tried exactly ONE account and treated its MsalUiRequiredException as proof that
+    // nobody was signed in. It isn't: that exception means "this identity can't get this token
+    // right now" - no consent in its tenant, a revoked grant, or a Windows account that has simply
+    // never used this app (which is most of them, since we list OS accounts). It says nothing at
+    // all about the next account in the list.
+    private async Task<AuthenticationResult?> TrySilentAsync(IReadOnlyList<IAccount> candidates)
+    {
+        foreach (var account in candidates)
+        {
+            try
+            {
+                var result = await _app.AcquireTokenSilent(_scopes, account).ExecuteAsync();
+                if (_lastGood?.HomeAccountId?.Identifier != result.Account?.HomeAccountId?.Identifier)
+                    _log.LogInformation("Authenticated as {Account}", result.Account?.Username);
+                _lastGood = result.Account ?? account;
+                // Giggity. Token acquired without anyone knowing.
+                return result;
+            }
+            catch (MsalUiRequiredException ex)
+            {
+                _log.LogDebug("No silent token for {Account}: {Reason}", account.Username, ex.Message);
+            }
+        }
+        return null;
+    }
+
     public async Task<string> GetAccessTokenAsync()
     {
         // First try silent — like when Stewie does something terrible and nobody notices.
-        // If an account is pinned in config, pick THAT one; otherwise the first cached account.
-        var accounts = await _app.GetAccountsAsync();
-        var account = _account != null
-            ? accounts.FirstOrDefault(a => string.Equals(a.Username, _account, StringComparison.OrdinalIgnoreCase))
-            : accounts.FirstOrDefault();
+        var candidates = await CandidatesAsync();
+        var silent = await TrySilentAsync(candidates);
+        if (silent != null) return silent.AccessToken;
 
-        try
-        {
-            var silent = await _app.AcquireTokenSilent(_scopes, account)
-                .ExecuteAsync();
-
-            // Giggity. Token acquired without anyone knowing.
-            return silent.AccessToken;
-        }
-        catch (MsalUiRequiredException) when (!AllowInteractive)
+        if (!AllowInteractive)
         {
             // Silent auth failed and we're the background server — do NOT prompt. Let the caller
             // deal with a token-less server (drive stays empty until someone runs --login). Popping
             // a window from here is what hung the unattended install; we're not making that mistake.
+            //
+            // A pinned account that matched nothing is its own diagnosis, so say so - otherwise the
+            // message sends people to --login, which won't help if the UPN is simply wrong.
             throw new InvalidOperationException(
-                "No cached credentials. Run 'OneDriveAsADrive.exe --login' to sign in.");
+                _account != null && candidates.Count == 0
+                    ? $"No signed-in Windows account matches '{_account}'. Check the account on the settings page, or run 'OneDriveAsADrive.exe --login' to sign in as it."
+                    : "No cached credentials. Run 'OneDriveAsADrive.exe --login' to sign in.");
         }
-        catch (MsalUiRequiredException)
-        {
-            // Interactive path (--login only). Like Peter finally reading the room.
-            _log.LogInformation("Silent auth failed — prompting via WAM...");
-        }
+
+        // Interactive path (--login only). Like Peter finally reading the room.
+        _log.LogInformation("No cached token on any of {Count} account(s) — prompting via WAM...", candidates.Count);
 
         // Interactive WAM — ONLY reached in --login mode (AllowInteractive = true), where a real
         // console window exists for the picker. A machine can have several signed-in identities
@@ -127,6 +196,8 @@ public class TokenManager
             : interactive.WithPrompt(Prompt.SelectAccount);
 
         var result = await interactive.ExecuteAsync();
+        _lastGood = result.Account;
+        _log.LogInformation("Signed in as {Account}", result.Account?.Username);
         return result.AccessToken;
     }
 }

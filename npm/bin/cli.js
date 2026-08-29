@@ -299,6 +299,7 @@ function cmdUninstall() {
   spawnSync('schtasks', ['/Delete', '/TN', APPNAME, '/F'], { stdio: 'ignore' });
   spawnSync('taskkill', ['/IM', `${APPNAME}.exe`, '/F'], { stdio: 'ignore' });
   try { fs.rmSync(path.join(process.env.APPDATA || '', 'Microsoft\\Windows\\Start Menu\\Programs\\Startup', `${APPNAME}.lnk`), { force: true }); } catch {}
+  try { fs.rmSync(path.join(process.env.APPDATA || '', 'Microsoft\\Windows\\Start Menu\\Programs', `${APPNAME} Settings.lnk`), { force: true }); } catch {}
   try { fs.rmSync(installDir, { recursive: true, force: true }); } catch {}
   ok('Removed task, drives, and files.');
   warn('Machine-wide WebDAV setting (BasicAuthLevel) left as-is. To revert (admin):');

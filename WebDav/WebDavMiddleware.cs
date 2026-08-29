@@ -173,11 +173,7 @@ public class WebDavMiddleware(
                 new XElement(Dav + "status", "HTTP/1.1 200 OK")));
 
     // localhost / 127.0.0.1 / ::1 only. Everything else can take a long walk off Quahog's pier.
-    private static bool IsLoopbackHost(string host) =>
-        host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
-        host == "127.0.0.1" ||
-        host == "::1" ||
-        host == "[::1]";
+    private static bool IsLoopbackHost(string host) => LoopbackGuard.IsLoopbackHost(host);
 
     // Validate HTTP Basic auth against the per-install secret. Constant-time compare so
     // we don't leak the secret one byte at a time via timing. Stewie would try that.

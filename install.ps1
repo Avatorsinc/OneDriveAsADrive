@@ -4,8 +4,9 @@
     Installs OneDriveAsADrive - mounts OneDrive and/or SharePoint libraries as local drive letters.
 .DESCRIPTION
     Downloads the latest release, verifies it, configures the WebClient service for HTTP WebDAV,
-    registers a hidden background Scheduled Task that runs at logon, starts the server, and maps
-    every drive described in config.json (or a single OneDrive on Z: if there's no config).
+    registers a hidden background Scheduled Task that runs at logon, adds a Start Menu shortcut
+    for the settings page, starts the server, and maps every drive described in config.json
+    (or a single OneDrive on Z: if there's no config).
 .PARAMETER DriveLetter
     Drive letter for the default single-OneDrive mount when no config.json is present (default: Z).
 .PARAMETER Port
@@ -172,6 +173,12 @@ if ($isAdmin) {
     $webClientParams = "HKLM:\SYSTEM\CurrentControlSet\Services\WebClient\Parameters"
     Set-ItemProperty $webClientParams -Name BasicAuthLevel       -Value 2  -Type DWord -Force
     Set-ItemProperty $webClientParams -Name FileSizeLimitInBytes -Value 0xFFFFFFFF -Type DWord -Force
+    # A PROPFIND on a big folder comes back as one multistatus body, and the redirector throws
+    # the whole response away if it exceeds this cap - then asks again, and again. Default is
+    # 1,000,000 bytes, which a few thousand files blow straight past; that's the "why does this
+    # folder take forever" complaint. 10 MB is ~10x the headroom and still bounded, because the
+    # redirector buffers this in kernel memory and unbounded is not a virtue.
+    Set-ItemProperty $webClientParams -Name FileAttributesLimitInBytes -Value 10000000 -Type DWord -Force
     Set-Service  WebClient -StartupType Automatic -ErrorAction SilentlyContinue
     Start-Service WebClient -ErrorAction SilentlyContinue
     Write-OK "WebClient configured"
@@ -233,6 +240,32 @@ if ($Silent) {
     } else {
         Write-OK "Signed in"
     }
+}
+
+# -- 4c. Start Menu shortcut for the settings page ------------------------------
+# The server is deliberately invisible, which leaves users with nothing to click when they
+# want a different drive letter or a re-sign-in. This shortcut is that something. It runs
+# --settings, which opens the local settings page in the default browser and starts the
+# background server first if it isn't already up.
+#
+# Created even in silent/IT installs: if an admin has turned the page off by policy, the exe
+# says so and exits, so the shortcut costs nothing. Making users hunt for a command line is
+# the alternative, and nobody does that - they file a ticket instead.
+Write-Step "Adding Start Menu shortcut..."
+try {
+    $menuLnk  = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$RepoName Settings.lnk"
+    $menuShell = New-Object -ComObject WScript.Shell
+    $menuItem  = $menuShell.CreateShortcut($menuLnk)
+    $menuItem.TargetPath       = $ExePath
+    $menuItem.Arguments        = "--settings"
+    $menuItem.WorkingDirectory = $InstallDir
+    $menuItem.IconLocation     = "$ExePath,0"
+    $menuItem.Description      = "Manage OneDriveAsADrive: port, drives, and sign-in"
+    $menuItem.Save()
+    Write-OK "Start Menu: '$RepoName Settings'"
+} catch {
+    Write-Host "  [WARN] Could not create the Start Menu shortcut ($_)." -ForegroundColor Yellow
+    Write-Host "         Open settings anytime with: `"$ExePath`" --settings" -ForegroundColor DarkYellow
 }
 
 # -- 5. Start the server now (hidden) ------------------------------------------
@@ -298,5 +331,6 @@ foreach ($m in $mounts) {
 
 Write-Host ""
 Write-Host "Done! Open File Explorer and look for your mapped drive(s)." -ForegroundColor Green
+Write-Host "Change settings from the Start Menu: '$RepoName Settings'" -ForegroundColor DarkGray
 Write-Host "Debug anytime with:  `"$ExePath`" --console" -ForegroundColor DarkGray
 Write-Host ""

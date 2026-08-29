@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+
+  <displayName>OneDriveAsADrive</displayName>
+  <description>Administrative template for OneDriveAsADrive, the local WebDAV bridge that mounts OneDrive and SharePoint document libraries as drive letters.</description>
+
+  <resources>
+    <stringTable>
+
+      <string id="SUPPORTED_ODAD_1_3">OneDriveAsADrive 1.3 or later</string>
+
+      <string id="Cat_OneDriveAsADrive">OneDriveAsADrive</string>
+      <string id="Cat_OneDriveAsADrive_Help">Settings for OneDriveAsADrive.
+
+None of these settings are required. If you configure nothing here, users manage their own port and drives from the built-in settings page, and any config.json you deploy to %ProgramData%\OneDriveAsADrive acts as a starting point that users may change.
+
+Configure a setting here only when you want to remove that choice from the user. Anything you set below is enforced: the settings page shows it as managed by your organization and refuses to change it.</string>
+
+      <string id="Port">Local port for the WebDAV server</string>
+      <string id="Port_Help">Fixes the loopback port that OneDriveAsADrive listens on, and prevents users from changing it.
+
+The server only ever binds to localhost, so this port is not reachable from the network. Set it when a conflicting local application already owns the default (40323), or when your endpoint tooling needs a predictable port.
+
+If you enable this policy, the port is fixed at the value you supply and the settings page shows it as managed.
+
+If you disable or do not configure this policy, the port comes from the user's own setting, then from a deployed machine-wide config.json, then from the built-in default of 40323.
+
+Changing this policy takes effect the next time OneDriveAsADrive starts. Mapped drives embed the port, so users need to re-map their drives afterwards - the Re-map drives button on the settings page does this, or re-run the installer.</string>
+
+      <string id="Account">Sign-in account</string>
+      <string id="Account_Help">Pins the user principal name that OneDriveAsADrive signs in with, and prevents users from changing it.
+
+Use this on machines where people are signed in to more than one identity (for example a personal Microsoft account alongside their work account) and you want the drives bound to the work account.
+
+Supply a UPN such as user@contoso.com. Windows environment variables are not expanded; if you need per-user values, target the policy per user or leave this unconfigured.
+
+If you disable or do not configure this policy, OneDriveAsADrive uses the account the user chose, or the first account the Windows broker has cached.
+
+Changing this policy takes effect the next time OneDriveAsADrive starts.</string>
+
+      <string id="Mounts">Drives to mount</string>
+      <string id="Mounts_Help">Defines the exact set of drives every targeted user gets, and prevents users from adding, removing, or editing them.
+
+Supply a JSON array in the same shape as the mounts array in config.json, on a single line. For example:
+
+[{"letter":"O","type":"onedrive","name":"OneDrive"},{"letter":"S","type":"sharepoint","site":"contoso.sharepoint.com:/sites/Finance","library":"Documents","name":"Finance"}]
+
+Each entry needs a single drive letter and a type of either onedrive or sharepoint. SharePoint entries also need a site, and may name a library (the default document library is used if you omit it). Entries that fail validation are dropped and logged.
+
+This is the strictest of the drive settings. If you only want to stop users changing a list you deployed through config.json, leave this unconfigured and disable "Allow users to manage their own drives" instead.
+
+If you disable or do not configure this policy, the drive list comes from the user's own setting, then from a deployed machine-wide config.json, then from the built-in default of a single OneDrive on Z:.
+
+Adding a SharePoint drive through this policy widens the Microsoft Graph permissions the app requests, which may need a one-time tenant admin consent, and takes effect the next time OneDriveAsADrive starts.</string>
+
+      <string id="AllowUserMounts">Allow users to manage their own drives</string>
+      <string id="AllowUserMounts_Help">Controls whether users may add, remove, or edit drives on the settings page.
+
+Use this together with a config.json deployed to %ProgramData%\OneDriveAsADrive when you want to hand out a standard set of drives and keep it that way, without having to restate the whole list as a policy.
+
+If you enable or do not configure this policy, users may manage their own drives. This is the default.
+
+If you disable this policy, the drive list is whatever the deployed config.json says, and the settings page shows it as managed. Users can still see their drives and re-map them; they cannot change which drives exist.
+
+The port and the account are unaffected by this policy. Set those separately if you also want them fixed.</string>
+
+      <string id="DisableSettingsUi">Turn off the settings page</string>
+      <string id="DisableSettingsUi_Help">Removes the built-in settings page entirely.
+
+With this enabled, the local settings endpoint stops answering and OneDriveAsADrive.exe --settings refuses to open a browser. Users get no interface at all - the app runs on whatever configuration you deployed.
+
+Prefer the narrower settings above where they will do. Turning off the page also removes the sign-in button and the re-map button, so users who hit an expired token or a broken drive mapping have no self-service path and will call your service desk instead.
+
+If you enable this policy, the settings page is unavailable.
+
+If you disable or do not configure this policy, the settings page is available on the loopback interface to the signed-in user. This is the default.
+
+The page is never reachable from the network: it binds to localhost only, requires a token derived from a per-user secret file to start a session, and rejects cross-origin requests.</string>
+
+    </stringTable>
+
+    <presentationTable>
+
+      <presentation id="Port">
+        <decimalTextBox refId="Port" defaultValue="40323" spinStep="1">Port (1024-65535):</decimalTextBox>
+      </presentation>
+
+      <presentation id="Account">
+        <textBox refId="Account">
+          <label>User principal name:</label>
+        </textBox>
+      </presentation>
+
+      <presentation id="Mounts">
+        <textBox refId="Mounts">
+          <label>Mounts (JSON array, single line):</label>
+        </textBox>
+      </presentation>
+
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

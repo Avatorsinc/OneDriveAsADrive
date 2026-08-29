@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OneDriveAsADrive administrative template.
+
+  Every setting here writes to SOFTWARE\Policies\OneDriveAsADrive, which is ACL'd to
+  administrators by construction - that is the whole reason the app reads its locks from
+  there and not from a config file a standard user can rewrite.
+
+  Nothing in this template is required. With no policy configured the app is entirely
+  user-owned: the settings page is available, and %ProgramData%\OneDriveAsADrive\config.json
+  acts as a seed the user may change. Configure a setting here only when you actually want
+  to take that choice away from the user.
+-->
+<policyDefinitions revision="1.0" schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+
+  <policyNamespaces>
+    <target prefix="onedriveasadrive" namespace="Avatorsinc.Policies.OneDriveAsADrive" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+
+  <resources minRequiredRevision="1.0" />
+
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_ODAD_1_3" displayName="$(string.SUPPORTED_ODAD_1_3)" />
+    </definitions>
+  </supportedOn>
+
+  <categories>
+    <category name="OneDriveAsADrive" displayName="$(string.Cat_OneDriveAsADrive)"
+              explainText="$(string.Cat_OneDriveAsADrive_Help)" />
+  </categories>
+
+  <policies>
+
+    <!-- Machine-wide policy wins over per-user policy, matching the usual Windows convention. -->
+    <policy name="Port" class="Both"
+            displayName="$(string.Port)" explainText="$(string.Port_Help)"
+            key="SOFTWARE\Policies\OneDriveAsADrive"
+            presentation="$(presentation.Port)">
+      <parentCategory ref="OneDriveAsADrive" />
+      <supportedOn ref="SUPPORTED_ODAD_1_3" />
+      <elements>
+        <decimal id="Port" valueName="Port" minValue="1024" maxValue="65535" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="Account" class="Both"
+            displayName="$(string.Account)" explainText="$(string.Account_Help)"
+            key="SOFTWARE\Policies\OneDriveAsADrive"
+            presentation="$(presentation.Account)">
+      <parentCategory ref="OneDriveAsADrive" />
+      <supportedOn ref="SUPPORTED_ODAD_1_3" />
+      <elements>
+        <text id="Account" valueName="Account" maxLength="255" required="true" />
+      </elements>
+    </policy>
+
+    <policy name="Mounts" class="Both"
+            displayName="$(string.Mounts)" explainText="$(string.Mounts_Help)"
+            key="SOFTWARE\Policies\OneDriveAsADrive"
+            presentation="$(presentation.Mounts)">
+      <parentCategory ref="OneDriveAsADrive" />
+      <supportedOn ref="SUPPORTED_ODAD_1_3" />
+      <elements>
+        <text id="Mounts" valueName="Mounts" maxLength="4096" required="true" />
+      </elements>
+    </policy>
+
+    <!-- Enabled (or not configured) leaves users free to add and remove their own drives.
+         Disabled pins the drive list without having to also pin the port or the account. -->
+    <policy name="AllowUserMounts" class="Both"
+            displayName="$(string.AllowUserMounts)" explainText="$(string.AllowUserMounts_Help)"
+            key="SOFTWARE\Policies\OneDriveAsADrive" valueName="AllowUserMounts">
+      <parentCategory ref="OneDriveAsADrive" />
+      <supportedOn ref="SUPPORTED_ODAD_1_3" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <!-- The kill switch. Enabled removes the settings page entirely: the local endpoint stops
+         answering and the settings switch on the exe refuses to launch a browser. -->
+    <policy name="DisableSettingsUi" class="Both"
+            displayName="$(string.DisableSettingsUi)" explainText="$(string.DisableSettingsUi_Help)"
+            key="SOFTWARE\Policies\OneDriveAsADrive" valueName="DisableSettingsUi">
+      <parentCategory ref="OneDriveAsADrive" />
+      <supportedOn ref="SUPPORTED_ODAD_1_3" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+  </policies>
+</policyDefinitions>

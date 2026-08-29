@@ -40,11 +40,32 @@ public class OneDriveProvider
     // Root item IDs, cached per drive. Kills a redundant round trip on root children.
     private readonly ConcurrentDictionary<string, string> _rootIds = new();
 
-    // How long we trust cached data. Short enough that changes show up quickly,
-    // long enough that Explorer's rapid-fire probing hits cache instead of Redmond.
-    private static readonly TimeSpan PositiveTtl = TimeSpan.FromSeconds(12);
+    // How long we trust cached data. Measured against a real personal OneDrive, ONE Graph call
+    // costs ~800ms no matter how small the folder is (an empty folder and a 10KB listing time the
+    // same), so a cache miss is always expensive and the old 12s was far too eager to throw work
+    // away — walk into a folder, read it, hit Back, and you'd already paid for it twice. 60s still
+    // picks up outside edits within a minute, and our own writes call Invalidate immediately.
+    private static readonly TimeSpan PositiveTtl = TimeSpan.FromSeconds(60);
     // Phantom-file 404s basically never become real, so cache the "nope" longer.
     private static readonly TimeSpan NegativeTtl = TimeSpan.FromSeconds(45);
+
+    // Graph pages children 200 at a time by default. Each extra page is another ~800ms, and they
+    // MUST be walked in order, so a 1000-item folder costs 4 seconds of pure pagination. Asking
+    // for 999 up front turns that into one trip. ($top is legal on the children endpoint; it is
+    // NOT legal inside $expand=children(...) — Graph answers that with 400 invalidRequest.)
+    private const int ChildrenPageSize = 999;
+
+    // How many subfolders we'll warm in the background off a single listing, and how many of those
+    // may be in flight at once. Six matches what the service will actually overlap: five folders
+    // fetched sequentially took 3654ms, the same five in parallel took 858ms.
+    private const int PrefetchMaxFolders = 32;
+    private static readonly SemaphoreSlim PrefetchGate = new(6);
+
+    // Requests currently in flight, keyed the same way as the cache. Explorer does not ask once
+    // and wait — the redirector fires overlapping PROPFINDs for the same folder, and without this
+    // each one started its own ~800ms Graph call for an answer its siblings were already fetching.
+    private readonly ConcurrentDictionary<string, Lazy<Task<DriveItem?>>> _itemFlights = new();
+    private readonly ConcurrentDictionary<string, Lazy<Task<List<DriveItem>>>> _childFlights = new();
 
     public OneDriveProvider(TokenManager tokenManager, IMemoryCache cache)
     {
@@ -67,6 +88,34 @@ public class OneDriveProvider
         if (_cache.TryGetValue(key, out DriveItem? cached))
             return cached; // could be a cached null (negative hit) — that's fine
 
+        return await Coalesce(_itemFlights, key, () => FetchItemAsync(driveId, path, prefetch: true));
+    }
+
+    // One fetch, however many callers asked for it. The Lazy is what makes this airtight:
+    // ConcurrentDictionary.GetOrAdd may run its factory on several threads under contention and
+    // only keep one result — which would still have STARTED the duplicate calls we're avoiding.
+    // Lazy with ExecutionAndPublication guarantees the factory body runs exactly once.
+    private static async Task<T> Coalesce<T>(
+        ConcurrentDictionary<string, Lazy<Task<T>>> flights, string key, Func<Task<T>> factory)
+    {
+        var lazy = flights.GetOrAdd(key,
+            _ => new Lazy<Task<T>>(factory, LazyThreadSafetyMode.ExecutionAndPublication));
+        try
+        {
+            return await lazy.Value;
+        }
+        finally
+        {
+            // Drop it whether it succeeded or threw: the result now lives in the cache, and a
+            // failure must not be pinned here for the next caller to inherit.
+            flights.TryRemove(key, out _);
+        }
+    }
+
+    private async Task<DriveItem?> FetchItemAsync(string driveId, string path, bool prefetch)
+    {
+        var key = ItemKey(driveId, path);
+
         // $expand=children is ONLY legal on folders. On a file, Graph blows up with "Children
         // cannot be listed from an item that is not a folder". We don't know which it is until
         // we ask, so: try with the expand (one round trip for the folder case), and if that
@@ -87,6 +136,7 @@ public class OneDriveProvider
                     { if (expand) rc.QueryParameters.Expand = ["children"]; });
 
         DriveItem? item;
+        var expanded = true;
         try
         {
             item = await Fetch(expand: true);
@@ -104,6 +154,7 @@ public class OneDriveProvider
             try
             {
                 item = await Fetch(expand: false);
+                expanded = false;
             }
             catch (ODataError inner) when (inner.ResponseStatusCode == 404)
             {
@@ -117,13 +168,68 @@ public class OneDriveProvider
         // Bonus: the expand handed us children for free — seed THAT cache too, so the
         // PROPFIND that follows is an instant hit. BUT only if the expand wasn't
         // truncated (folders with >200 items paginate; a partial seed would hide files).
-        if (item?.Folder != null && item.Children != null &&
+        //
+        // We gate on `expanded` rather than on Children being non-null, because those aren't the
+        // same question. An EMPTY folder comes back from the expand with no children collection at
+        // all, which the old check read as "no data, don't seed" — so every empty folder paid a
+        // second ~800ms round trip to be told it was still empty. It's the one case where we
+        // already know the answer for certain, so cache it: if the expand ran and didn't paginate,
+        // null children means zero children.
+        if (item?.Folder != null && expanded &&
             item.AdditionalData?.ContainsKey("children@odata.nextLink") != true)
         {
-            _cache.Set(ChildrenKey(driveId, path), item.Children, PositiveTtl);
+            var children = item.Children ?? [];
+            _cache.Set(ChildrenKey(driveId, path), children, PositiveTtl);
+            if (prefetch) SchedulePrefetch(driveId, path, children);
         }
 
         return item;
+    }
+
+    // Warm the subfolders of a listing we just fetched, in the background.
+    //
+    // This is the one that actually attacks the FEEL of the drive. The ~800ms per folder is the
+    // service's, not ours — we can't make a call faster, we can only make it happen before the
+    // user asks. Someone who just opened a folder is about to double-click something in it, and
+    // they spend a second or two looking at it first; that's the window we fill. When they do
+    // click, the listing is already sitting in the cache.
+    //
+    // Deliberately one level deep and fire-and-forget: no recursion (a prefetch never schedules
+    // its own prefetch), a cap on breadth, and a gate on concurrency, so opening a big folder
+    // warms what's likely next instead of crawling the whole drive.
+    private void SchedulePrefetch(string driveId, string path, IEnumerable<DriveItem> children)
+    {
+        var folders = children
+            .Where(c => c.Folder != null && !string.IsNullOrEmpty(c.Name))
+            .Take(PrefetchMaxFolders);
+
+        foreach (var folder in folders)
+        {
+            var childPath = string.IsNullOrEmpty(path) ? folder.Name! : $"{path}/{folder.Name}";
+            if (_cache.TryGetValue(ChildrenKey(driveId, childPath), out _)) continue;
+
+            _ = Task.Run(async () =>
+            {
+                await PrefetchGate.WaitAsync();
+                try
+                {
+                    // Re-check under the gate: by the time our turn came, the user may well have
+                    // opened this folder themselves and paid for it already.
+                    if (_cache.TryGetValue(ChildrenKey(driveId, childPath), out _)) return;
+                    await Coalesce(_itemFlights, ItemKey(driveId, childPath),
+                        () => FetchItemAsync(driveId, childPath, prefetch: false));
+                }
+                catch
+                {
+                    // Speculative work. If it fails the user simply pays for the folder on entry,
+                    // exactly as before — there is nobody to report this to.
+                }
+                finally
+                {
+                    PrefetchGate.Release();
+                }
+            });
+        }
     }
 
     // List folder contents — ALL of them. Follows @odata.nextLink so folders with
@@ -137,12 +243,21 @@ public class OneDriveProvider
         if (_cache.TryGetValue(key, out List<DriveItem>? cachedList) && cachedList != null)
             return cachedList;
 
+        return await Coalesce(_childFlights, key, () => FetchChildrenAsync(driveId, path));
+    }
+
+    private async Task<List<DriveItem>> FetchChildrenAsync(string driveId, string path)
+    {
+        var key = ChildrenKey(driveId, path);
+
         DriveItemCollectionResponse? firstPage;
         try
         {
             firstPage = string.IsNullOrEmpty(path)
-                ? await _client.Drives[driveId].Items[await GetRootIdAsync(driveId)].Children.GetAsync()
-                : await _client.Drives[driveId].Root.ItemWithPath(path).Children.GetAsync();
+                ? await _client.Drives[driveId].Items[await GetRootIdAsync(driveId)].Children
+                    .GetAsync(rc => rc.QueryParameters.Top = ChildrenPageSize)
+                : await _client.Drives[driveId].Root.ItemWithPath(path).Children
+                    .GetAsync(rc => rc.QueryParameters.Top = ChildrenPageSize);
         }
         catch (ODataError e) when (e.ResponseStatusCode == 404)
         {
@@ -159,6 +274,7 @@ public class OneDriveProvider
         }
 
         _cache.Set(key, all, PositiveTtl);
+        SchedulePrefetch(driveId, path, all);
         return all;
     }
 

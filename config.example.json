@@ -1,8 +1,10 @@
 {
   "// help": "Deploy this as config.json to %ProgramData%\\OneDriveAsADrive\\ (machine-wide, IT) or %LOCALAPPDATA%\\OneDriveAsADrive\\ (per-user). 'port' is the local WebDAV port. Each mount becomes a drive letter.",
   "// account": "Optional. UPN/email to sign in as, e.g. you@contoso.com. Pins the identity on a machine with several signed-in Microsoft accounts. Remove this line to use the default account.",
+  "// allowUserOverride": "Optional, machine-wide file only, default true. True means this file is a starting point users may change from the settings page. False locks every field in it. For enforcement a standard user cannot undo, use the ADMX in deploy/policy instead - the Policies registry hive is admin-only, %ProgramData% is not.",
   "port": 40323,
   "account": "you@contoso.com",
+  "allowUserOverride": true,
   "mounts": [
     {
       "letter": "O",

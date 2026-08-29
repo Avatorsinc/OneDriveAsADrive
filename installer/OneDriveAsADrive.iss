@@ -43,6 +43,10 @@ Source: "..\config.example.json"; DestDir: "{app}"; Flags: ignoreversion
 ; (same policy as the manual uninstall docs).
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Services\WebClient\Parameters"; ValueType: dword; ValueName: "BasicAuthLevel"; ValueData: 2; Flags: noerror
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Services\WebClient\Parameters"; ValueType: dword; ValueName: "FileSizeLimitInBytes"; ValueData: $ffffffff; Flags: noerror
+; PROPFIND on a large folder returns one multistatus body; over this cap the redirector
+; discards it and re-asks, which is the "big folders are slow" complaint. Default 1,000,000
+; is small. 10 MB, not unlimited - the redirector buffers this in kernel memory.
+Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Services\WebClient\Parameters"; ValueType: dword; ValueName: "FileAttributesLimitInBytes"; ValueData: 10000000; Flags: noerror
 
 [Run]
 ; WebClient service on autostart (admin context). Non-zero exit codes are shrugged off -

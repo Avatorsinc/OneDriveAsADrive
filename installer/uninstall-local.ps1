@@ -44,5 +44,8 @@ Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoi
 # Startup-shortcut fallback (only exists if task registration failed at install time).
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\$RepoName.lnk" -Force -ErrorAction SilentlyContinue
 
+# Start Menu shortcut to the settings page.
+Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$RepoName Settings.lnk" -Force -ErrorAction SilentlyContinue
+
 # Per-user files: exe copy, logs, .secret, per-user config. All of it. ROADHOUSE.
 Remove-Item "$env:LOCALAPPDATA\$RepoName" -Recurse -Force -ErrorAction SilentlyContinue
