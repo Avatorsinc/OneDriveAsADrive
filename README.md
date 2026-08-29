@@ -1,4 +1,4 @@
-# OneDriveAsADrive
+﻿# OneDriveAsADrive
 
 ![OneDriveAsADrive — mount OneDrive and SharePoint as Windows drive letters](screenshots/hero.svg)
 
@@ -17,9 +17,9 @@ Map **OneDrive** — personal *or* work/school — **and SharePoint document lib
 
 ## Screenshots
 
-| App running | Drive in File Explorer |
+| The tray menu | Drive in File Explorer |
 |---|---|
-| ![Building and running OneDriveAsADrive](screenshots/Build.png) | ![Mapped network drive in File Explorer](screenshots/AddedDrive.png) |
+| ![The OneDriveAsADrive tray menu open next to the clock](screenshots/tray-menu.png) | ![Mapped network drive in File Explorer](screenshots/AddedDrive.png) |
 
 Multiple libraries, each its own drive letter under **Network locations**:
 
@@ -201,7 +201,9 @@ iwr https://github.com/Avatorsinc/OneDriveAsADrive/releases/latest/download/inst
 .\install.ps1 -Config .\config.json
 ```
 
-`install.ps1 -Config <file>` copies your config machine-wide, installs the exe, registers the **background Scheduled Task** (hidden, runs at each logon), and maps every configured drive.
+`install.ps1 -Config <file>` copies your config machine-wide, installs the exe, registers the **background Scheduled Task** (hidden, runs at each logon), adds the settings shortcut, and maps every configured drive.
+
+**A deployed config is a default, not a lock.** Users have a [settings page](#settings-page) and their own choices win, field by field. When you need something actually enforced, ingest the ADMX in [`deploy/policy/`](deploy/policy/) — it can pin the port, the account, or the drive list, freeze the drive list while leaving everything else open, or turn the settings page off entirely. Nothing is enforced by default; you opt in per setting. Full details in [IT deployment](docs/intune-gpo-deployment.md).
 
 > **Consent at scale:** so users see *zero* prompts, have a Global Admin grant tenant-wide consent once (the `adminconsent` URL in [Accounts & Access](#accounts--access)). After that, the broader SharePoint scopes are pre-approved for everyone.
 
@@ -223,9 +225,53 @@ npx onedriveasadrive uninstall
 
 ---
 
+## The Tray Icon
+
+The app puts an icon in the **notification area** (bottom-right of the taskbar, possibly behind the `^` arrow). That icon is the entry point for everything below — no command line needed:
+
+![The tray menu, showing the account header, one row per drive, and the startup tick box](screenshots/tray-menu.png)
+
+| Menu item | What it does |
+|-----------|--------------|
+| *Header* | The version, and which account you're signed in as |
+| **Open `X`: (name)** | Opens that drive in Explorer — one row per configured drive |
+| **Settings...** | Opens the settings page (same as `--settings`). Double-clicking the icon does this too |
+| **Sign in / switch account** | Runs the interactive Microsoft sign-in |
+| **Re-map drives now** | Re-applies your drive letters without a restart |
+| **View log** | Opens `app.log` |
+| **Start automatically when I sign in** | Tick box for the logon task — see [Starting Automatically](#starting-automatically) |
+| **Turn off (disconnect drives and quit)** | Asks first, then removes your drive letters *and* stops the server |
+
+> **Windows 11 hides new tray icons by default.** If you don't see it, click the `^` arrow next to the clock — then drag the icon down onto the taskbar to keep it visible.
+
+Pass `--no-tray` to run with no icon at all (kiosks, or deployments where nobody's looking at that desktop).
+
+---
+
+## Starting Automatically
+
+Turning this on and off is a tick box in two places — **Start automatically when I sign in** on the [tray icon](#the-tray-icon), and the **Startup** card on the [settings page](#settings-page). Both drive the same switch, so a change in one shows up in the other.
+
+**It isn't a Windows service, on purpose.** A service runs in session 0, which has no drive letters of its own and no desktop — it could neither map `Z:` into your Explorer nor put the Microsoft account picker in front of you. The per-user equivalent on Windows is a **logon Scheduled Task**, which is what the tick box registers: the same hidden `OneDriveAsADrive` task [`install.ps1`](#quick-install) creates, running as you, with no run-time limit.
+
+| What gets registered | When |
+|---|---|
+| Scheduled Task `OneDriveAsADrive` — visible in Task Scheduler, restarts itself up to 3 times if it fails | Normally |
+| A `Software\Microsoft\Windows\CurrentVersion\Run` entry in your own hive — starts slightly later in logon, won't restart on failure | Only if the machine refuses to register a task |
+
+![The Startup card on the settings page, with the tick box on and the scheduled task named under it](screenshots/settings-startup-card.png)
+
+Whichever one answered is named under the tick box, so it's clear where to go looking. Neither needs an administrator, and only one is ever in place at a time — two triggers would start two servers racing for the same port.
+
+**Turning off is a real off.** *Turn off (disconnect drives and quit)* removes your drive letters **before** it stops the server. A letter left mapped to a server that's gone looks perfectly normal in Explorer and then freezes the shell on first click, because `/persistent:yes` mappings outlive the process — Windows even restores them after a reboot. Starting the app again re-connects every configured drive on its own, so an off-and-on round trip leaves you where you began.
+
+![The confirmation dialog shown by Turn off, listing what will be disconnected](screenshots/turn-off-dialog.png)
+
+---
+
 ## Background & Debugging
 
-The app is a **windowless background process** — normal users never see it. It's launched by the Scheduled Task at logon (or immediately by the installer). Logs always go to `%LOCALAPPDATA%\OneDriveAsADrive\logs\app.log`.
+Apart from the tray icon the app is a **windowless background process**. It's launched by the Scheduled Task at logon (or immediately by the installer), and connects every configured drive letter once it's listening. Logs always go to `%LOCALAPPDATA%\OneDriveAsADrive\logs\app.log`.
 
 Admins/troubleshooters can run it with a **visible console** to watch it live (it prints the exact `net use` line for every drive, including the secret):
 
@@ -234,20 +280,45 @@ Admins/troubleshooters can run it with a **visible console** to watch it live (i
 # or:  npx onedriveasadrive debug
 ```
 
+![OneDriveAsADrive running with --console, printing the mount line for each drive](screenshots/Build.png)
+
+---
+
+## Settings Page
+
+Reachable from **Settings...** on the [tray icon](#the-tray-icon), or from the **OneDriveAsADrive Settings** Start Menu shortcut the installer adds. It opens a local page in your browser where you can change the port, add or remove OneDrive and SharePoint drives, sign in again, re-map your drives, and turn [starting at sign-in](#starting-automatically) on or off — no config file editing, no PowerShell.
+
+```powershell
+& "$env:LOCALAPPDATA\OneDriveAsADrive\OneDriveAsADrive.exe" --settings
+```
+
+![The settings page: account, drives, port and startup cards](screenshots/settings-page.png)
+
+It starts the background server first if it isn't already running. Changing the port, the account, or adding a *SharePoint* drive needs a restart (the page tells you); adding or removing OneDrive drives takes effect immediately.
+
+The page binds to loopback only and is never reachable from the network. Opening it requires a short-lived token derived from your per-user `.secret` file, which is why it has to be launched from the shortcut or the command line rather than by typing the URL. Sessions are cookie-backed with a CSRF token, and cross-origin requests are rejected — a website you visit cannot drive it. See [SECURITY.md](SECURITY.md).
+
+Your changes are saved to `%LOCALAPPDATA%\OneDriveAsADrive\config.json` and **win over** any `config.json` your IT department deployed, field by field — unless they've explicitly locked that field by policy, in which case the page shows it as *Managed by your organization*. The one exception is the **Startup** tick box: it isn't a config field at all, it registers or removes a Windows task, so it applies the moment you click it rather than on save.
+
 ---
 
 ## Configuration
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `--settings` | — | Open the settings page in your browser |
+| `--login` | — | Run the interactive Microsoft sign-in once, then exit |
 | `--urls` | from `config.json` (`http://localhost:40323`) | Override the listening port |
 | `--console` / `--debug` | *(off)* | Pop a console window with live logs (background otherwise) |
+| `--no-tray` | *(off)* | Run without the notification-area icon |
 
-Change the port for everything in `config.json` (`"port": 9090`), or override at launch:
+Change the port for everything on the settings page, in `config.json` (`"port": 9090`), or override at launch:
 
 ```powershell
 .\OneDriveAsADrive.exe --urls http://localhost:9090 --console
 ```
+
+Settings resolve **per field**, most authoritative first: admin policy (registry) → your own `%LOCALAPPDATA%` config → a deployed `%ProgramData%` config → built-in defaults. So a machine-wide config is a starting point you can change, not a cage — see [IT Deployment](#it-deployment-remote--no-code) if you're on the other side of that.
 
 ---
 
@@ -259,6 +330,8 @@ Two removal methods, and they clean **different** things:
 - **`npx onedriveasadrive uninstall`** — removes the **per-user** pieces (background task, mapped drives, secret, logs, `%LOCALAPPDATA%` config) running as *you*, but does **not** remove a `Program Files` install or its Apps entry.
 
 For a normal single-admin machine, **Settings → Apps alone is fully clean.**
+
+![OneDriveAsADrive in Settings, Installed apps, with the Uninstall menu open](screenshots/uninstall.png)
 
 > If a mapped-drive icon still shows immediately after uninstall, it's a dead placeholder — Windows keeps live drive letters in your logon session, which an elevated uninstaller can't reach. It clears on **sign-out or reboot**, or right away with `net use <Letter>: /delete`.
 
@@ -274,8 +347,12 @@ net use Z: /delete
 schtasks /Delete /TN OneDriveAsADrive /F
 Get-Process OneDriveAsADrive -ErrorAction SilentlyContinue | Stop-Process
 
-# Remove the Startup shortcut (only exists if the task fell back to it) and files (deletes .secret + per-user config)
+# Remove the two startup fallbacks (each only exists if task registration was refused):
+# the installer's Startup shortcut, and the app's own registry entry
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\OneDriveAsADrive.lnk" -Force -ErrorAction SilentlyContinue
+Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name OneDriveAsADrive -ErrorAction SilentlyContinue
+
+# Files (deletes .secret + per-user config)
 Remove-Item "$env:LOCALAPPDATA\OneDriveAsADrive" -Recurse -Force -ErrorAction SilentlyContinue
 
 # Machine-wide config, if IT deployed one (admin)
@@ -353,6 +430,7 @@ The sync client copies state to disk, needs per-user library setup clicks, and s
 - [Privacy](PRIVACY.md)
 - [Admin consent (work/school tenants)](docs/admin-consent.md)
 - [IT deployment — Intune / GPO / SCCM](docs/intune-gpo-deployment.md)
+- [Administrative template (ADMX/ADML)](deploy/policy/)
 - [Compatibility matrix](docs/compatibility-matrix.md)
 
 ---
